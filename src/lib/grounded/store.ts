@@ -82,6 +82,11 @@ interface GroundedState {
   routingLog: RoutingEvent[];
   pushRoutingEvent: (e: RoutingEvent) => void;
   clearRoutingLog: () => void;
+  /** Re-read persisted state from localStorage AFTER mount. Persisted slices
+   *  must start empty and rehydrate post-hydration — loading them during store
+   *  creation makes the first client render diverge from the prerendered HTML
+   *  (React hydration error #418 on every reload with saved data). */
+  rehydratePersisted: () => void;
 
   // model status
   modelStatus: ModelStatus;
@@ -145,7 +150,7 @@ export const useGrounded = create<GroundedState>((set) => ({
   variantsBusy: null,
   setVariantsBusy: (v) => set({ variantsBusy: v }),
 
-  routingLog: loadRoutingLog(),
+  routingLog: [],
   pushRoutingEvent: (e) =>
     set((s) => {
       const log = [e, ...s.routingLog].slice(0, 200);
@@ -168,7 +173,7 @@ export const useGrounded = create<GroundedState>((set) => ({
   graded: {},
   setGraded: (g) =>
     set((s) => ({ graded: { ...s.graded, [`${g.studentId}:${g.questionId}`]: g } })),
-  sessionHistory: loadHistory(),
+  sessionHistory: [],
   pushSessionHistory: (e) =>
     set((s) => {
       const history = [e, ...s.sessionHistory].slice(0, 50);
@@ -182,6 +187,12 @@ export const useGrounded = create<GroundedState>((set) => ({
   setMode: (m) => set({ mode: m }),
   showDemoBanner: true,
   dismissDemoBanner: () => set({ showDemoBanner: false }),
+
+  rehydratePersisted: () =>
+    set({
+      routingLog: loadRoutingLog(),
+      sessionHistory: loadHistory(),
+    }),
 }));
 
 /** Non-hook accessor for use inside event handlers. */

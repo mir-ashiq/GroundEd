@@ -64,6 +64,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   // Resolve mode + kick off Remote Config + availability probe.
   useEffect(() => {
+    // Rehydrate persisted slices AFTER mount (hydration-safe — see store.ts).
+    useGrounded.getState().rehydratePersisted();
     setMode(firebaseEnabled ? "live" : "demo");
     if (firebaseEnabled) {
       getAppCheck(); // initialize App Check before any AI Logic call
