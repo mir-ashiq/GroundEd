@@ -2,6 +2,20 @@
 
 All notable changes to GroundEd are documented here.
 
+## 3.0.1 — production deploy + hydration fix (Nov 19, 2026)
+
+- **Live on production**: v3 "Classroom OS" deployed to
+  https://grounded-hybrid.web.app and verified with the full 29-check E2E
+  suite against production (LIVE generation, live session, AI grading,
+  offline submit + sync, offline reload) — 29/29.
+- **Fixed**: React hydration error #418 on reload with saved data. The
+  Zustand store initialized the persisted routing log / session history
+  from localStorage during store creation, so the first client render
+  diverged from the prerendered HTML. Persisted slices now start empty
+  and rehydrate after mount (`rehydratePersisted()` in AppShell).
+- Screenshots refreshed from the production app (incl. new: Verification
+  Lab result, Insights with a real graded session).
+
 ## 3.0.0 — "Classroom OS" (Nov 19, 2026)
 
 GroundEd grows from a teaching kit into the teacher's whole workflow: paper
