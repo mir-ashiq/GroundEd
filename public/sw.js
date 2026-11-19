@@ -4,7 +4,7 @@
    - Navigations: network-first with cached-page fallback, so the landing and
      the studio app still open in airplane mode after the first visit.
 */
-const CACHE = "grounded-shell-v4";
+const CACHE = "grounded-shell-v5";
 const PRECACHE = ["/", "/studio/"];
 
 self.addEventListener("install", (event) => {

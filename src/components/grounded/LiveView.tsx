@@ -46,7 +46,8 @@ import {
 import { gradeAnswer } from "@/lib/grounded/aiEngine";
 import { firebaseEnabled, currentUid, studentSignIn, teacherSignIn } from "@/lib/grounded/firebase";
 import type { GradedAnswer, Quiz, StudentSubmission } from "@/lib/grounded/types";
-import { History, FileSpreadsheet } from "lucide-react";
+import { History, FileSpreadsheet, FileStack } from "lucide-react";
+import { PaperModeView } from "./PaperModeView";
 
 export function LiveView() {
   const quiz = useGrounded((s) => s.quiz);
@@ -65,6 +66,8 @@ export function LiveView() {
   const [creating, setCreating] = useState(false);
   const [teacherUid, setTeacherUid] = useState<string | null>(null);
   const [gradingBusy, setGradingBusy] = useState<string | null>(null);
+  // v3 — how the class runs today: student devices, or paper worksheets.
+  const [classMode, setClassMode] = useState<"live" | "paper">("live");
 
   // localStorage is not available during SSR — load the library one frame
   // after mount (past hydration).
@@ -142,7 +145,10 @@ export function LiveView() {
     if (status === "closed") {
       const gradedCount = Object.values(graded).length;
       pushSessionHistory({
-        ...summarizeSession(session.quiz, submissions, gradedCount),
+        ...summarizeSession(session.quiz, submissions, gradedCount, {
+          source: "live",
+          graded,
+        }),
         code: session.code,
       });
     }
@@ -256,6 +262,37 @@ export function LiveView() {
   if (!session) {
     return (
       <div className="space-y-4">
+        {/* v3 — pick how today's class runs: student devices or paper */}
+        <div className="no-print mx-auto flex w-fit rounded-full border bg-card p-1">
+          {(
+            [
+              { id: "live", label: "Live class", icon: Radio },
+              { id: "paper", label: "Paper stack", icon: FileStack },
+            ] as const
+          ).map((m) => {
+            const Icon = m.icon;
+            const active = classMode === m.id;
+            return (
+              <button
+                key={m.id}
+                onClick={() => setClassMode(m.id)}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition-colors",
+                  active
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                aria-pressed={active}
+              >
+                <Icon className="h-3.5 w-3.5" /> {m.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {classMode === "paper" ? (
+          <PaperModeView />
+        ) : (
       <Card className="mx-auto max-w-xl">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -351,6 +388,7 @@ export function LiveView() {
           </Button>
         </CardContent>
       </Card>
+        )}
 
       {sessionHistory.length > 0 && (
         <Card className="mx-auto max-w-xl">

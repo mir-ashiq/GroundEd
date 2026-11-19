@@ -24,6 +24,9 @@ import {
   BadgeCheck,
   GraduationCap,
   Layers,
+  FileStack,
+  BarChart3,
+  Volume2,
 } from "lucide-react";
 
 const STUDIO_URL = "/studio/";
@@ -56,7 +59,7 @@ const FEATURES: { icon: React.ElementType; title: string; body: string }[] = [
   {
     icon: BookOpen,
     title: "Quiz studio",
-    body: "Paste text, import a file or photograph a textbook page; pick grade level (3\u201312), Bloom's depth and question mix \u2014 get an editable quiz with a cross-verified answer key.",
+    body: "Paste text, import a .txt/.md/PDF or photograph a textbook page; pick grade level (3\u201312), Bloom's depth and question mix \u2014 get an editable quiz with a cross-verified answer key. PDFs are extracted in the browser \u2014 nothing uploaded.",
   },
   {
     icon: GraduationCap,
@@ -74,14 +77,29 @@ const FEATURES: { icon: React.ElementType; title: string; body: string }[] = [
     body: "A 6-character join code brings the class in on their phones. MCQs auto-check deterministically (students see their score instantly); short answers are graded by AI with a per-call routing badge.",
   },
   {
+    icon: FileStack,
+    title: "Paper mode",
+    body: "No student devices? Print the worksheet, then type the class's answers once — MCQs auto-check and short answers are graded by the same privacy-biased engine, offline if needed. The audience's most common medium, supported end-to-end.",
+  },
+  {
     icon: Layers,
     title: "Differentiated versions",
     body: "One click re-builds the same material as a Support version (two grades simpler) and an Extension version (two grades deeper) \u2014 because real classrooms are mixed-ability.",
   },
   {
     icon: Wand2,
-    title: "Flashcards",
-    body: "A revision deck from the same lesson \u2014 one idea per card, flip and shuffle, self-mark as known. Generated through the same hybrid engine.",
+    title: "Flashcards, with spaced repetition",
+    body: "A revision deck from the same lesson — scheduled by the SM-2 algorithm (the one behind Anki): failed cards come back tomorrow, easy cards in weeks. Progress lives on the device. Cards can be read aloud for younger readers.",
+  },
+  {
+    icon: Volume2,
+    title: "Read-aloud",
+    body: "Questions, flashcards and re-explanations can be listened to with on-device speech synthesis — for younger and low-literacy learners. Free, offline, no AI call needed.",
+  },
+  {
+    icon: BarChart3,
+    title: "Class insights",
+    body: "Sessions, student results, MCQ trends and the questions the class keeps getting wrong — computed locally from history. Plus a hybrid-value meter: what on-device routing saved you, in calls, KB and offline completions.",
   },
   {
     icon: ShieldCheck,
@@ -162,8 +180,9 @@ export default function Landing() {
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg">
             GroundEd is an offline-first <strong className="text-foreground">teaching kit</strong> for
-            low-connectivity classrooms: quizzes, lesson plans, flashcards and
-            live sessions from the same material. Every AI action runs through
+            low-connectivity classrooms: quizzes, lesson plans, flashcards,
+            live sessions, paper-stack grading and class insights — all from
+            the same material. Every AI action runs through
             Firebase AI Logic hybrid inference — <strong className="text-foreground">Gemini Nano on the device</strong> when it&apos;s
             there, <strong className="text-foreground">Gemini in the cloud</strong> when it helps — and
             answer keys are verified on the <em>other</em> tier, so two
@@ -270,8 +289,8 @@ export default function Landing() {
               {
                 icon: Users,
                 step: "3",
-                title: "Run the class live",
-                body: "Students join with a 6-character code on their phones. MCQs auto-check; short answers are graded by AI; offline answers queue and sync.",
+                title: "Run the class — live or on paper",
+                body: "Students join with a code on their phones, or answer on paper and the teacher types the stack in once. MCQs auto-check; short answers are graded by AI; offline answers queue and sync; results land on the Insights dashboard.",
               },
             ].map((s) => (
               <div

@@ -2,6 +2,66 @@
 
 All notable changes to GroundEd are documented here.
 
+## 3.0.0 — "Classroom OS" (Nov 19, 2026)
+
+GroundEd grows from a teaching kit into the teacher's whole workflow: paper
+classrooms, class analytics, smarter revision, and a trust story you can run
+in one click — still on one Firebase AI Logic hybrid engine with honest
+routing badges.
+
+### Added
+
+- **Paper mode** — print the worksheet, students answer on paper, the teacher
+  types the stack in once (MCQs become A–D taps, short answers a sentence
+  each). MCQs auto-check deterministically; short answers run through the
+  same privacy-biased hybrid grading engine — gradeable fully offline. CSV
+  export + automatic session history, badged `PAPER-…` in the log.
+- **Insights tab** — the class dashboard, computed locally from history and
+  the routing log: sessions taught (live vs paper), student results, average
+  MCQ trend (sparkline), and the questions the class keeps getting wrong
+  (weighted across sessions). Plus the **hybrid-value meter**: on-device vs
+  cloud call counts, illustrative savings vs a cloud-only app, KB of material
+  kept local, and offline completions.
+- **Verification Lab** — the cross-tier answer-key check made runnable: in
+  DEMO mode it deterministically plants wrong keys and shows the check
+  catching every one (labelled as a simulation); in LIVE mode it re-runs the
+  real verification pass on the current quiz, in place.
+- **Spaced repetition (SM-2)** — Study flashcards are now scheduled by the
+  classic SM-2 algorithm (the one behind Anki): Again / Hard / Good / Easy,
+  per-card ease and intervals, due-first queue, "mastered" at a 3-week gap.
+  Progress persists per deck on the device.
+- **Explain tool (UI)** — every question in the editor has an "Explain"
+  button: a warm re-explanation at a chosen reading level (grade 3–12) with an
+  everyday analogy, grounded in the source material. Device-preferred
+  (student-facing = private), routing-badged, readable aloud.
+- **Read-aloud** — questions in the student view, flashcards and explanations
+  can be listened to via on-device speech synthesis (Web Speech API). Free,
+  offline, no AI call — accessibility for younger and low-literacy learners.
+- **PDF import** — PDFs are imported by extracting the text layer in the
+  browser (pdf.js, worker bundled locally — no CDN). Text-layer PDFs feed the
+  same path as pasted text, so they work on-device and offline; scanned PDFs
+  are detected and redirected to the Photo tab with an honest message.
+- **More output languages** — English, Hindi, Tamil, Telugu, Bengali and
+  Marathi for quizzes, lesson plans and flashcards (cloud tier recommended
+  for non-English; stated honestly in-app).
+- **Session history enrichment** — every closed session (live or paper) now
+  stores per-question class results and grading route counts, which is what
+  powers Insights.
+
+### Changed
+
+- Study tab: the old "I know this" toggle is replaced by real SM-2
+  scheduling (self-assessment quality instead of a binary flag).
+- Live tab: a Live-class / Paper-stack switch replaces the single "start a
+  session" card; past sessions now label their source.
+- Landing page and README updated for the v3 surface area.
+
+### Fixed
+
+- The v2 red-team report claimed PDF import, paper-mode entry and the explain
+  UI were shipped — they were not. All three actually exist now (and are
+  covered by tests where the logic is pure).
+
 ## 2.0.0 — "Teach Kit" (Nov 19, 2026)
 
 GroundEd grows from a quiz generator into a complete offline-first teaching

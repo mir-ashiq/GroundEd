@@ -12,6 +12,7 @@ import { AppShell } from "@/components/grounded/AppShell";
 import { StudioView } from "@/components/grounded/StudioView";
 import { LiveView } from "@/components/grounded/LiveView";
 import { StudentView } from "@/components/grounded/StudentView";
+import { InsightsView } from "@/components/grounded/InsightsView";
 import { ErrorBoundary } from "@/components/grounded/ErrorBoundary";
 import { useGrounded } from "@/lib/grounded/store";
 
@@ -23,6 +24,7 @@ export default function Studio() {
         {view === "studio" && <StudioView />}
         {view === "live" && <LiveView />}
         {view === "student" && <StudentView />}
+        {view === "insights" && <InsightsView />}
       </AppShell>
     </ErrorBoundary>
   );

@@ -17,6 +17,7 @@ import {
   Loader2,
   Send,
   Users,
+  Volume2,
   WifiOff,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -33,6 +34,7 @@ import {
   type SessionSnapshot,
 } from "@/lib/grounded/sessions";
 import { currentUid, studentSignIn } from "@/lib/grounded/firebase";
+import { speak, speechAvailable } from "@/lib/grounded/speech";
 import type { LiveSession, Quiz, StudentAnswer } from "@/lib/grounded/types";
 
 type Step = "code" | "name" | "quiz" | "done";
@@ -359,9 +361,31 @@ function markSubmitted(code: string) {
               Question {qIndex + 1} of {questions.length}
               {question.type === "short" && " · short answer"}
             </p>
-            <h2 className="font-display text-xl font-semibold leading-snug">
-              {question.question}
-            </h2>
+            <div className="flex items-start justify-between gap-2">
+              <h2 className="font-display text-xl font-semibold leading-snug">
+                {question.question}
+              </h2>
+              {speechAvailable() && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 shrink-0 gap-1 rounded-full px-3 text-xs"
+                  onClick={() =>
+                    speak(
+                      question.type === "mcq" && question.options
+                        ? `${question.question} The options are: ${question.options
+                            .map((o, i) => `${String.fromCharCode(65 + i)}. ${o}`)
+                            .join(". ")}`
+                        : question.question,
+                      "en",
+                    )
+                  }
+                  aria-label="Read this question aloud"
+                >
+                  <Volume2 className="h-3.5 w-3.5" /> Listen
+                </Button>
+              )}
+            </div>
 
             {question.type === "mcq" && question.options ? (
               <div className="space-y-2">

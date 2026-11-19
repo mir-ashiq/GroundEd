@@ -138,6 +138,25 @@ describe("summarizeSession", () => {
     const s = summarizeSession(shortOnly, subs, 0);
     expect(s.avgMcqPct).toBe(-1);
   });
+
+  it("v3: records per-question stats for the Insights tab", () => {
+    const s = summarizeSession(quiz, subs, 1, {
+      source: "live",
+      graded: { "student_a:q_2": { score: 1 } },
+    });
+    expect(s.source).toBe("live");
+    expect(s.perQuestion).toHaveLength(2);
+    // q_1 (MCQ): Priya correct, Arjun wrong → 50%
+    expect(s.perQuestion![0]).toMatchObject({ type: "mcq", pct: 50, answered: 2 });
+    // q_2 (short): only the graded answer counts → 100%
+    expect(s.perQuestion![1]).toMatchObject({ type: "short", pct: 100, answered: 1 });
+  });
+
+  it("v3: paper stacks roll up the same way (source: paper)", () => {
+    const s = summarizeSession(quiz, subs, 0, { source: "paper" });
+    expect(s.source).toBe("paper");
+    expect(s.perQuestion![0].pct).toBe(50);
+  });
 });
 
 describe("generateSessionCode", () => {

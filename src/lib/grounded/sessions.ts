@@ -18,6 +18,7 @@ import {
   collection,
 } from "firebase/firestore";
 import { getDb, firebaseEnabled } from "./firebase";
+import { questionStatsForSession } from "./insights";
 import type { LiveSession, Quiz, StudentSubmission } from "./types";
 
 const NATURE_WORDS = [
@@ -449,11 +450,17 @@ export function buildSessionCsv(
   return rows.join("\n");
 }
 
-/** Roll up a finished session into a history entry (local analytics). */
+/** Roll up a finished session into a history entry (local analytics).
+ *  v3: also stores per-question class results (feeds the Insights tab) and
+ *  how the session ran (live student devices vs a paper stack). */
 export function summarizeSession(
   quiz: Quiz,
   submissions: StudentSubmission[],
   shortGradedCount: number,
+  options?: {
+    source?: "live" | "paper";
+    graded?: Record<string, { score: number }>;
+  },
 ): {
   code: string;
   title: string;
@@ -461,6 +468,8 @@ export function summarizeSession(
   students: number;
   avgMcqPct: number;
   shortGraded: number;
+  source?: "live" | "paper";
+  perQuestion?: import("./types").QuestionStat[];
 } {
   const mcqs = quiz.questions.filter((q) => q.type === "mcq");
   let pct = -1;
@@ -481,5 +490,16 @@ export function summarizeSession(
     students: submissions.length,
     avgMcqPct: pct,
     shortGraded: shortGradedCount,
+    source: options?.source,
+    perQuestion: questionStatsForSession(
+      quiz.questions.map((q) => ({
+        id: q.id,
+        question: q.question,
+        type: q.type,
+        answerIndex: q.answerIndex,
+      })),
+      submissions,
+      options?.graded ?? {},
+    ),
   };
 }

@@ -23,6 +23,7 @@ import {
   Radio,
   Users,
   ExternalLink,
+  BarChart3,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -44,6 +45,7 @@ const NAV: { id: ViewId; label: string; icon: React.ElementType }[] = [
   { id: "studio", label: "Studio", icon: BookOpen },
   { id: "live", label: "Live session", icon: Radio },
   { id: "student", label: "Student join", icon: Users },
+  { id: "insights", label: "Insights", icon: BarChart3 },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -312,7 +314,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <footer className="no-print mt-auto border-t bg-card/60">
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-2 px-4 py-4 text-xs text-muted-foreground sm:flex-row sm:px-6">
           <p>
-            GroundEd v2 · Built for{" "}
+            GroundEd v3 · Built for{" "}
             <span className="font-medium text-foreground">#BuildHybridAI 2026</span>{" "}
             · Firebase AI Logic hybrid inference · Gemini Nano on-device
           </p>

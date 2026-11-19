@@ -39,6 +39,10 @@ import {
   ArrowRight,
   RotateCcw,
   Shuffle,
+  FileStack,
+  Lightbulb,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -83,6 +87,7 @@ import {
 import {
   BLOOMS_LEVELS,
   LANGUAGE_LABELS,
+  LANGUAGES,
   type AIFeature,
   type Quiz,
   type BloomsLevel,
@@ -91,6 +96,20 @@ import {
   type FlashcardDeck,
   type VariantKind,
 } from "@/lib/grounded/types";
+import { extractPdfText } from "@/lib/grounded/pdf";
+import { ExplainDialog } from "./ExplainDialog";
+import {
+  review as srsReview,
+  loadDeckStates,
+  saveDeckStates,
+  deckStats,
+  isDue,
+  isMastered,
+  SRS_BUTTONS,
+  newSrsState,
+  type SRSCardState,
+} from "@/lib/grounded/srs";
+import { speak, stopSpeaking, speechAvailable } from "@/lib/grounded/speech";
 
 type Workspace = "quiz" | "teach" | "study";
 
@@ -144,6 +163,9 @@ export function StudioView() {
 
   // v2 workspaces
   const [workspace, setWorkspace] = useState<Workspace>("quiz");
+  // v3 — explain tool: which question is being re-explained
+  const [explainQ, setExplainQ] = useState<string | null>(null);
+  const [explainOpen, setExplainOpen] = useState(false);
   const activeVariant: VariantKind = useMemo(() => {
     if (!variants) return "onlevel";
     if (variants.support?.id === quiz?.id) return "support";
@@ -156,6 +178,8 @@ export function StudioView() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const quizFileInputRef = useRef<HTMLInputElement>(null);
   const textFileInputRef = useRef<HTMLInputElement>(null);
+  const pdfFileInputRef = useRef<HTMLInputElement>(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
 
   // localStorage is not available during SSR — load the library one frame
   // after mount (past hydration).
@@ -200,6 +224,33 @@ export function StudioView() {
     setConfig({ subject: sample.subject });
     setActiveTab("paste");
     toast.success(`Loaded sample: ${sample.label}`);
+  }
+
+  /** Import a PDF — the text layer is extracted in the browser (pdf.js),
+   *  so it feeds the SAME path as pasted text and works on-device/offline.
+   *  Scanned PDFs (no text layer) are redirected to the Photo tab honestly. */
+  async function handlePdf(file: File) {
+    if (file.size > 15_000_000) {
+      toast.error("That PDF is too large — keep it under 15 MB.");
+      return;
+    }
+    setPdfBusy(true);
+    try {
+      const r = await extractPdfText(file);
+      if (!r.ok) {
+        toast.error(r.text, { duration: 7000 });
+        return;
+      }
+      setImportPayload({ kind: "text", text: r.text, fileName: file.name });
+      setConfig({ subject: inferSubject(file.name) });
+      setActiveTab("paste");
+      toast.success(
+        `Extracted ${r.pages} page${r.pages > 1 ? "s" : ""} locally — no upload, works offline.`,
+      );
+    } finally {
+      setPdfBusy(false);
+      if (pdfFileInputRef.current) pdfFileInputRef.current.value = "";
+    }
   }
 
   /** Import a .txt / .md file as source material (works fully offline). */
@@ -518,6 +569,34 @@ export function StudioView() {
                   <span className="font-medium">Import a .txt or .md file</span>
                   <span className="text-xs">Notes, chapters, syllabus text — read locally</span>
                 </button>
+                <input
+                  ref={pdfFileInputRef}
+                  type="file"
+                  accept=".pdf,application/pdf"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void handlePdf(f);
+                  }}
+                />
+                <button
+                  onClick={() => pdfFileInputRef.current?.click()}
+                  disabled={pdfBusy}
+                  className="flex h-20 w-full flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground disabled:opacity-60"
+                >
+                  {pdfBusy ? (
+                    <>
+                      <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                      <span className="font-medium">Extracting text in your browser…</span>
+                    </>
+                  ) : (
+                    <>
+                      <FileStack className="h-5 w-5 text-muted-foreground/60" />
+                      <span className="font-medium">Import a PDF</span>
+                      <span className="text-xs">Text extracted on-device — nothing uploaded</span>
+                    </>
+                  )}
+                </button>
                 <Separator />
                 <input
                   ref={quizFileInputRef}
@@ -648,16 +727,14 @@ export function StudioView() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {(Object.keys(LANGUAGE_LABELS) as GenerationConfig["language"][]).map(
-                    (l) => (
-                      <SelectItem key={l} value={l}>
-                        {LANGUAGE_LABELS[l]}
-                      </SelectItem>
-                    ),
-                  )}
+                  {LANGUAGES.map((l) => (
+                    <SelectItem key={l.code} value={l.code}>
+                      {l.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
-              {config.language === "hi" && (
+              {config.language !== "en" && (
                 <p className="mt-1 text-[11px] text-muted-foreground">
                   Non-English output leans on the cloud tier — the on-device model is
                   English-biased and will fall back honestly.
@@ -777,6 +854,10 @@ export function StudioView() {
                     busy={generating}
                     onPrint={() => window.print()}
                     onExport={exportQuizFile}
+                    onExplain={(question) => {
+                      setExplainQ(question);
+                      setExplainOpen(true);
+                    }}
                     onGoLive={() => {
                       saveToLibrary(quiz);
                       setLibrary(loadLibrary());
@@ -852,6 +933,16 @@ export function StudioView() {
       {/* Print artifact — visible only when printing */}
       {quiz && <PrintWorksheet quiz={quiz} />}
       <LessonPlanPrint />
+
+      {/* v3 — explain-it-differently dialog (grounds on the source material).
+   *       Keyed per question so each explanation starts fresh. */}
+      <ExplainDialog
+        key={explainQ ?? "none"}
+        question={explainQ ?? ""}
+        context={importPayload?.text ?? ""}
+        open={explainOpen}
+        onOpenChange={setExplainOpen}
+      />
     </div>
   );
 }
@@ -1196,22 +1287,37 @@ function StudyWorkspace() {
   const setDeckGenerating = useGrounded((s) => s.setDeckGenerating);
   const pushRoutingEvent = useGrounded((s) => s.pushRoutingEvent);
 
-  const [index, setIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
-  const [order, setOrder] = useState<number[]>([]);
-  const [known, setKnown] = useState<Set<number>>(new Set());
+  const [queue, setQueue] = useState<number[]>([]);
+  const [index, setIndex] = useState(0);
+  const [srs, setSrs] = useState<Record<string, SRSCardState>>({});
+  const [reviewedCount, setReviewedCount] = useState(0);
 
   const hasMaterial =
     (importPayload?.kind === "text" && (importPayload.text?.length ?? 0) > 80) ||
     (importPayload?.kind === "image" && !!importPayload.imageBase64);
 
+  // Load persisted scheduling state + build the study queue (due first).
   useEffect(() => {
     if (!deck) return;
-    const id = requestAnimationFrame(() =>
-      setOrder(deck.cards.map((_, i) => i)),
-    );
+    const id = requestAnimationFrame(() => {
+      const states = loadDeckStates(deck.id);
+      setSrs(states);
+      setQueue(
+        deck.cards
+          .map((c, i) => ({ i, dueAt: states[c.id]?.dueAt ?? 0 }))
+          .sort((a, b) => a.dueAt - b.dueAt)
+          .map((x) => x.i),
+      );
+      setIndex(0);
+      setFlipped(false);
+      setReviewedCount(0);
+    });
     return () => cancelAnimationFrame(id);
   }, [deck]);
+
+  // Stop any read-aloud when leaving the workspace.
+  useEffect(() => () => stopSpeaking(), []);
 
   async function onGenerateDeck() {
     if (!importPayload) return;
@@ -1242,9 +1348,6 @@ function StudyWorkspace() {
       };
       if (d.cards.length === 0) throw new Error("The model returned no usable cards — try again.");
       setDeck(d);
-      setIndex(0);
-      setFlipped(false);
-      setKnown(new Set());
       toast.success(
         result.route === "ON_DEVICE"
           ? "Deck generated fully on-device — study it in airplane mode."
@@ -1257,6 +1360,23 @@ function StudyWorkspace() {
     } finally {
       setDeckGenerating(false);
     }
+  }
+
+  /** One SM-2 review step: update state, persist, advance (lapsed cards come
+   *  back to the end of today's queue — that's how relearning works). */
+  function answer(quality: 0 | 3 | 4 | 5) {
+    if (!deck) return;
+    const cardIdx = queue[index];
+    if (cardIdx === undefined) return;
+    const card = deck.cards[cardIdx];
+    const next = srsReview(srs[card.id] ?? newSrsState(), quality);
+    const states = { ...srs, [card.id]: next };
+    setSrs(states);
+    saveDeckStates(deck.id, states);
+    setReviewedCount((n) => n + 1);
+    setFlipped(false);
+    setQueue((q) => (quality < 3 ? [...q, cardIdx] : q));
+    setIndex((i) => i + 1);
   }
 
   if (!deck && !deckGenerating) {
@@ -1272,7 +1392,7 @@ function StudyWorkspace() {
             </h2>
             <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
               {hasMaterial
-                ? "Flashcards from the same material — one idea per card. Flip, shuffle, and mark cards as known. Generated through the same hybrid engine."
+                ? "Flashcards from the same material — one idea per card, with spaced-repetition scheduling (SM-2) so revision plans itself. Cards can be read aloud for younger readers."
                 : "Paste or photograph material on the left — then generate a study deck."}
             </p>
           </div>
@@ -1298,103 +1418,162 @@ function StudyWorkspace() {
   }
 
   if (!deck) return null;
-  const cardIndex = order[index] ?? 0;
-  const card = deck.cards[cardIndex];
-  if (!card) return null;
+  const stats = deckStats(
+    srs,
+    deck.cards.map((c) => c.id),
+  );
+  const cardIdx = queue[index];
+  const card = cardIdx !== undefined ? deck.cards[cardIdx] : undefined;
+  const sessionDone = cardIdx === undefined;
 
   return (
     <div className="mx-auto max-w-xl space-y-4">
-      <div className="no-print flex items-center justify-between gap-2">
+      <div className="no-print flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm font-medium">
           {deck.title}{" "}
           <span className="text-muted-foreground">
-            · {index + 1}/{deck.cards.length}
+            · {Math.min(index, queue.length)}/{queue.length}
           </span>
         </p>
-        <Badge variant="outline" className="gap-1">
-          {known.size} known
-        </Badge>
-      </div>
-
-      <button
-        onClick={() => setFlipped((f) => !f)}
-        className="block w-full text-left"
-        aria-label={flipped ? "Show question" : "Reveal answer"}
-      >
-        <motion.div
-          key={`${card.id}-${flipped}`}
-          initial={{ rotateX: flipped ? -70 : 70, opacity: 0 }}
-          animate={{ rotateX: 0, opacity: 1 }}
-          transition={{ type: "spring", stiffness: 260, damping: 24 }}
-          className={cn(
-            "flex min-h-[220px] flex-col items-center justify-center gap-3 rounded-2xl border-2 p-8 text-center shadow-sm",
-            flipped
-              ? "border-[color-mix(in_oklab,var(--device)_45%,white)] bg-[color-mix(in_oklab,var(--device)_6%,white)]"
-              : "border-border bg-card",
-          )}
-        >
-          <Badge variant="outline" className="text-[10px] uppercase tracking-widest">
-            {flipped ? "Answer" : "Question"}
+        <div className="flex gap-1.5">
+          <Badge variant="outline" className="gap-1 text-[10px]">
+            {stats.due} due
           </Badge>
-          <p className={cn("font-display leading-snug", flipped ? "text-lg" : "text-xl font-semibold")}>
-            {flipped ? card.back : card.front}
-          </p>
-          <p className="text-[11px] text-muted-foreground">tap to flip</p>
-        </motion.div>
-      </button>
-
-      <div className="no-print flex flex-wrap gap-2">
-        <Button
-          variant="outline"
-          className="flex-1 gap-1.5"
-          disabled={index === 0}
-          onClick={() => {
-            setFlipped(false);
-            setIndex((i) => i - 1);
-          }}
-        >
-          <ArrowLeft className="h-4 w-4" /> Back
-        </Button>
-        <Button
-          variant={known.has(cardIndex) ? "default" : "outline"}
-          className="gap-1.5"
-          onClick={() =>
-            setKnown((k) => {
-              const next = new Set(k);
-              if (next.has(cardIndex)) next.delete(cardIndex);
-              else next.add(cardIndex);
-              return next;
-            })
-          }
-        >
-          <Check className="h-4 w-4" /> {known.has(cardIndex) ? "Known" : "I know this"}
-        </Button>
-        <Button
-          variant="outline"
-          className="gap-1.5"
-          onClick={() => {
-            setOrder((o) => [...o].sort(() => Math.random() - 0.5));
-            setIndex(0);
-            setFlipped(false);
-          }}
-        >
-          <Shuffle className="h-4 w-4" /> Shuffle
-        </Button>
-        <Button
-          className="flex-1 gap-1.5"
-          disabled={index >= deck.cards.length - 1}
-          onClick={() => {
-            setFlipped(false);
-            setIndex((i) => i + 1);
-          }}
-        >
-          Next <ArrowRight className="h-4 w-4" />
-        </Button>
+          <Badge variant="outline" className="gap-1 text-[10px]">
+            {stats.learning} learning
+          </Badge>
+          <Badge
+            variant="outline"
+            className="gap-1 border-[color-mix(in_oklab,var(--device)_40%,white)] text-[10px] text-[var(--device)]"
+          >
+            {stats.mastered} mastered
+          </Badge>
+        </div>
       </div>
+
+      {sessionDone ? (
+        <Card className="border-[color-mix(in_oklab,var(--device)_30%,white)]">
+          <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
+            <span className="grid h-14 w-14 place-items-center rounded-2xl bg-[color-mix(in_oklab,var(--device)_10%,white)]">
+              <Check className="h-7 w-7 text-[var(--device)]" />
+            </span>
+            <h2 className="font-display text-xl font-semibold">
+              Deck finished — {reviewedCount} review{reviewedCount === 1 ? "" : "s"} today
+            </h2>
+            <p className="max-w-md text-sm text-muted-foreground">
+              SM-2 scheduled the rest: failed cards come back tomorrow, easy
+              cards in weeks. Your progress is saved on this device — open the
+              deck again any day and only the due cards queue up.
+            </p>
+            <Button
+              variant="outline"
+              className="gap-1.5"
+              onClick={() => {
+                setQueue((q) => [...q]);
+                setIndex(0);
+                setFlipped(false);
+              }}
+            >
+              <RotateCcw className="h-4 w-4" /> Study again from the top
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <div className="no-print flex justify-end">
+            {speechAvailable() && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 px-2 text-xs text-muted-foreground"
+                onClick={() =>
+                  speak(flipped ? card!.back : card!.front, config.language === "en" ? "en" : config.language)
+                }
+              >
+                <Volume2 className="h-3.5 w-3.5" /> Listen
+              </Button>
+            )}
+          </div>
+          <button
+            onClick={() => setFlipped((f) => !f)}
+            className="block w-full text-left"
+            aria-label={flipped ? "Show question" : "Reveal answer"}
+          >
+            <motion.div
+              key={`${card!.id}-${flipped}`}
+              initial={{ rotateX: flipped ? -70 : 70, opacity: 0 }}
+              animate={{ rotateX: 0, opacity: 1 }}
+              transition={{ type: "spring", stiffness: 260, damping: 24 }}
+              className={cn(
+                "flex min-h-[220px] flex-col items-center justify-center gap-3 rounded-2xl border-2 p-8 text-center shadow-sm",
+                flipped
+                  ? "border-[color-mix(in_oklab,var(--device)_45%,white)] bg-[color-mix(in_oklab,var(--device)_6%,white)]"
+                  : "border-border bg-card",
+              )}
+            >
+              <Badge variant="outline" className="text-[10px] uppercase tracking-widest">
+                {flipped ? "Answer" : "Question"}
+              </Badge>
+              <p className={cn("font-display leading-snug", flipped ? "text-lg" : "text-xl font-semibold")}>
+                {flipped ? card!.back : card!.front}
+              </p>
+              <p className="text-[11px] text-muted-foreground">tap to flip</p>
+            </motion.div>
+          </button>
+
+          {flipped ? (
+            <div className="no-print grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {SRS_BUTTONS.map((b) => (
+                <Button
+                  key={b.label}
+                  variant={b.tone === "again" ? "destructive" : b.tone === "good" ? "default" : "outline"}
+                  className="flex-col gap-0.5 py-2"
+                  onClick={() => answer(b.quality)}
+                >
+                  <span className="text-sm font-semibold">{b.label}</span>
+                  <span className="text-[10px] font-normal opacity-80">{b.hint}</span>
+                </Button>
+              ))}
+            </div>
+          ) : (
+            <div className="no-print flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                className="gap-1.5"
+                disabled={index === 0}
+                onClick={() => {
+                  setFlipped(false);
+                  setIndex((i) => i - 1);
+                }}
+              >
+                <ArrowLeft className="h-4 w-4" /> Back
+              </Button>
+              <Button
+                variant="outline"
+                className="gap-1.5"
+                onClick={() => {
+                  setQueue((q) => [...q].sort(() => Math.random() - 0.5));
+                  setIndex(0);
+                  setFlipped(false);
+                }}
+              >
+                <Shuffle className="h-4 w-4" /> Shuffle
+              </Button>
+              <Button
+                className="flex-1 gap-1.5"
+                onClick={() => setFlipped(true)}
+              >
+                Show answer <ArrowRight className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+        </>
+      )}
 
       <div className="no-print flex items-center justify-between">
         <p className="text-xs text-muted-foreground">
-          Cards answered correctly in the live session pair well with this deck for revision.
+          Spaced repetition (SM-2) schedules each card from how well you rated
+          it — progress stays on this device, offline.
         </p>
         <Button
           variant="ghost"
@@ -1475,6 +1654,7 @@ function QuizEditor({
   onGoLive,
   onSave,
   onExport,
+  onExplain,
   busy,
 }: {
   quiz: Quiz;
@@ -1484,6 +1664,7 @@ function QuizEditor({
   onGoLive: () => void;
   onSave: () => void;
   onExport: () => void;
+  onExplain: (question: string) => void;
   busy: boolean;
 }) {
   const bloomsHint = useMemo(
@@ -1636,6 +1817,14 @@ function QuizEditor({
               )}
 
               <div className="mt-2 flex justify-end gap-1 pl-8">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 px-2 text-xs text-muted-foreground"
+                  onClick={() => onExplain(q.question)}
+                >
+                  <Lightbulb className="h-3 w-3" /> Explain
+                </Button>
                 <Button
                   variant="ghost"
                   size="sm"

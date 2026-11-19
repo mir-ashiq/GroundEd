@@ -6,7 +6,14 @@
 // redeploying the app — exactly the workflow Firebase recommends for AI Logic.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { GenerationConfig } from "./types";
+import { LANGUAGE_LABELS, type GenerationConfig, type LanguageCode } from "./types";
+
+/** One shared instruction for every generator: write in the requested
+ *  language, simply. For English this is a no-op sentence. */
+function languageInstruction(code: LanguageCode): string {
+  if (code === "en") return "Write everything in clear, simple English.";
+  return `Write everything in simple ${LANGUAGE_LABELS[code]} (technical terms may stay English).`;
+}
 
 export const QUIZ_SYSTEM_PROMPT = `You are GroundEd, an expert curriculum designer for school teachers.
 You turn classroom material into high-quality assessments.
@@ -78,7 +85,7 @@ Requirements:
 - Number of questions: ${config.questionCount}
 - ${shortRule}
 ${config.includeOutline ? "- Also include a lesson outline (4-6 short section headings) a teacher could teach from before giving this quiz." : "- Set outline to an empty array."}
-${config.language === "hi" ? "- Write the questions and options in simple Hindi (technical terms may stay English)." : "- Write everything in clear, simple English."}
+- ${languageInstruction(config.language)}
 - title: a short, teacher-friendly quiz title.`;
 }
 
@@ -121,7 +128,7 @@ Requirements:
 - Subject: ${config.subject}
 - Total duration: about 40 minutes
 - 4-6 timed sections from warm-up to closure
-${config.language === "hi" ? "- Write objectives, actions, homework and differentiation in simple Hindi (headings may stay English)." : "- Write everything in clear, simple English."}`;
+- ${languageInstruction(config.language)}`;
 }
 
 /** Prompt for flashcard generation. */
@@ -142,7 +149,7 @@ ${isImage ? "" : `<material>\n${sourceText}\n</material>`}
 Requirements:
 - Grade level: ${config.gradeLevel}
 - 8-14 cards, one idea per card
-${config.language === "hi" ? "- Write the cards in simple Hindi." : "- Write the cards in clear, simple English."}`;
+- ${languageInstruction(config.language)}`;
 }
 
 /** Prompt for re-explaining one concept at a given reading level. */

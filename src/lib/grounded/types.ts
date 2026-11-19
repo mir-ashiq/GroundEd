@@ -4,7 +4,7 @@
 // #BuildHybridAI 2026 · Firebase AI Logic hybrid inference
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type ViewId = "studio" | "live" | "student";
+export type ViewId = "studio" | "live" | "student" | "insights";
 
 /** Where an inference actually ran. ON_DEVICE / IN_CLOUD mirror the official
  *  `response.inferenceSource` values from the Firebase AI Logic SDK. */
@@ -89,7 +89,7 @@ export interface GenerationConfig {
   subject: string;
   /** Output language for generated material (honest: cloud-tier recommended
    *  for non-English; on-device tier is English-biased and falls back). */
-  language: "en" | "hi";
+  language: LanguageCode;
 }
 
 export const DEFAULT_CONFIG: GenerationConfig = {
@@ -102,10 +102,27 @@ export const DEFAULT_CONFIG: GenerationConfig = {
   language: "en",
 };
 
-export const LANGUAGE_LABELS: Record<GenerationConfig["language"], string> = {
+/** Output languages for generated material. Non-English leans on the cloud
+ *  tier — the on-device model is English-biased and falls back honestly. */
+export type LanguageCode = "en" | "hi" | "ta" | "te" | "bn" | "mr";
+
+export const LANGUAGES: { code: LanguageCode; label: string }[] = [
+  { code: "en", label: "English" },
+  { code: "hi", label: "हिंदी — Hindi" },
+  { code: "ta", label: "தமிழ் — Tamil" },
+  { code: "te", label: "తెలుగు — Telugu" },
+  { code: "bn", label: "বাংলা — Bengali" },
+  { code: "mr", label: "मराठी — Marathi" },
+];
+
+export const LANGUAGE_LABELS: Record<LanguageCode, string> = {
   en: "English",
-  hi: "हिंदी (Hindi)",
-};
+  hi: "Hindi",
+  ta: "Tamil",
+  te: "Telugu",
+  bn: "Bengali",
+  mr: "Marathi",
+} as Record<LanguageCode, string>;
 
 export interface ImportPayload {
   kind: "text" | "image";
@@ -231,6 +248,17 @@ export interface QuizVariants {
 
 // ── Session history (local) ──────────────────────────────────────────────────
 
+/** Per-question result rollup, persisted with the session so the Insights
+ * tab can find the class's weak spots without re-reading submissions. */
+export interface QuestionStat {
+  /** First 90 chars of the question text — enough to recognise, cheap to store. */
+  label: string;
+  type: "mcq" | "short";
+  /** 0-100; -1 when there is nothing to score (unanswered / ungraded). */
+  pct: number;
+  answered: number;
+}
+
 export interface SessionHistoryEntry {
   code: string;
   title: string;
@@ -238,6 +266,25 @@ export interface SessionHistoryEntry {
   students: number;
   avgMcqPct: number; // 0..100, -1 when no MCQs
   shortGraded: number;
+  /** v3: how the session ran — live (student devices) or paper stack. */
+  source?: "live" | "paper";
+  /** v3: per-question class results for the Insights tab. */
+  perQuestion?: QuestionStat[];
+  /** v3: where the AI grading calls ran for this session. */
+  routeCounts?: { device: number; cloud: number; demo: number };
+}
+
+// ── Paper stacks (v3 — grade a whole class of paper worksheets) ─────────────
+
+/** A teacher-entered paper answer sheet: one row per student, typed from
+ *  the marked worksheets after class. MCQs auto-check deterministically;
+ *  short answers are AI-graded with the same privacy-biased engine. */
+export interface PaperStack {
+  quizId: string;
+  title: string;
+  entries: StudentSubmission[];
+  createdAt: number;
+  gradedAt?: number;
 }
 
 // ── Mode ─────────────────────────────────────────────────────────────────────

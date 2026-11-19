@@ -5,9 +5,10 @@
 **The classroom AI that works when the internet doesn't.**
 
 An offline-first teaching kit for low-connectivity classrooms: **quizzes,
-lesson plans and flashcards** from any material — with private on-device
-grading, live sessions that survive airplane mode, and answer keys verified on
-the *other* tier.
+lesson plans and flashcards** from any material (paste, photo or PDF) — with
+private on-device grading, **paper-stack grading**, live sessions that
+survive airplane mode, **class analytics with a hybrid-value meter**, and
+answer keys verified on the *other* tier.
 
 `#BuildHybridAI 2026` · Built on **Firebase AI Logic hybrid inference**
 
@@ -30,7 +31,9 @@ the *other* tier.
 | 3 | **Differentiated versions**: Support (−2 grades) and Extension (+2 grades) of the same quiz, one click each | Quiz tab → the three level chips |
 | 4 | **Airplane mode**: generate, grade and keep working with zero bars (static shell + service worker + Firestore offline cache + on-device model) | Settings → *Prepare offline AI*, then go offline |
 | 5 | **Live class**: 6-character join code, instant MCQ scores for students, AI-graded short answers, CSV export, session history | Live session tab |
-| 6 | **Honesty by design**: DEMO mode labels every simulated response; the badge comes from the SDK's `inferenceSource`, never a guess | Run locally with no config |
+| 6 | **Paper mode**: print the worksheet, students answer on paper, teacher types the stack once — MCQs auto-check, short answers AI-graded offline | Live session → *Paper stack* |
+| 7 | **Insights**: sessions, student results, MCQ trend, the class's weakest questions — plus a hybrid-value meter (on-device calls, illustrative savings, KB kept local) and a runnable **Verification Lab** | Insights tab |
+| 8 | **Honesty by design**: DEMO mode labels every simulated response; the badge comes from the SDK's `inferenceSource`, never a guess | Run locally with no config |
 
 ![Studio — quiz with differentiated versions](docs/screenshots/grounded_screenshot_studio.png)
 
@@ -103,27 +106,52 @@ A 30-student class, 5 quizzes a week, ~25 AI calls per quiz-and-grade cycle:
   (long docs, non-English, cross-verification). Firestore/Auth/Hosting for a
   classroom-scale deployment sit comfortably in Firebase's free tiers.
   Numbers vary with usage; the structural point doesn't: on-device calls are
-  free, and they are the majority.
+  free, and they are the majority. The **Insights tab turns this into a live
+  meter** — it counts every on-device call you actually made, estimates what
+  a cloud-only app would have metered, and shows how much material never
+  left the device.
 
 ## Feature tour
 
-- **Studio** — import material (paste / photograph / `.txt` / `.md` / a shared
-  `.grounded.json` quiz / samples), pick grade level (3–12), Bloom's depth,
-  question mix and output language; generate a quiz; edit any question, mark
-  correct answers, regenerate individual questions.
+- **Studio** — import material (paste / photograph / `.txt` / `.md` / **PDF,
+  text-layer extracted in the browser** / a shared `.grounded.json` quiz /
+  samples), pick grade level (3–12), Bloom's depth, question mix and output
+  language (**English, Hindi, Tamil, Telugu, Bengali, Marathi**); generate a
+  quiz; edit any question, mark correct answers, regenerate individual
+  questions, **explain any question at a chosen reading level** (with an
+  everyday analogy, readable aloud).
 - **Teach** — a full timed lesson plan from the same material: objectives,
   materials, per-section *you do / students do*, homework, support &
   extension notes. Printable.
-- **Study** — a flashcard deck from the same material: flip, shuffle, and
-  self-mark cards as known.
+- **Study** — a flashcard deck from the same material, scheduled by **SM-2
+  spaced repetition** (the algorithm behind Anki): Again / Hard / Good /
+  Easy, due-first queue, mastered at a 3-week gap, progress persisted per
+  device. Cards can be **read aloud** (on-device speech synthesis) for
+  younger and low-literacy readers.
 - **Differentiation** — Support (grade −2, recall) and Extension (grade +2,
   analysis) versions of the same quiz, switchable losslessly.
 - **Printable worksheet** — real print CSS: name/date lines, MCQ option grids,
   short-answer rule lines, and a separate answer-key page.
-- **Live sessions** — 6-character join code, mobile-first student flow,
-  per-question answer distributions, MCQ auto-checked deterministically with
-  **instant student scores**, short answers graded by AI with per-call
-  routing badges, **CSV export** and **session history** with class stats.
+- **Live sessions** — 6-character join code, mobile-first student flow with
+  **read-aloud questions**, per-question answer distributions, MCQ
+  auto-checked deterministically with **instant student scores**, short
+  answers graded by AI with per-call routing badges, **CSV export** and
+  **session history** with class stats.
+- **Paper mode** — the audience's most common medium, end-to-end: print the
+  worksheet, students answer on paper, the teacher types the stack in once
+  (MCQs become A–D taps). MCQs auto-check; short answers go through the same
+  privacy-biased hybrid grading engine — gradeable with **zero student
+  devices and zero connectivity**. CSV export + history, side by side with
+  live sessions.
+- **Insights** — the teacher's class dashboard, computed locally from
+  history + the routing log: sessions taught (live vs paper), student
+  results, average MCQ trend, and the questions the class keeps getting
+  wrong (weighted across sessions). The **hybrid-value meter** makes the
+  architecture pay visibly: on-device vs cloud call counts, illustrative
+  savings vs a cloud-only app, KB of material kept local, and offline
+  completions. The **Verification Lab** makes the trust story runnable —
+  plant a wrong answer key and watch the cross-tier check catch it (demo),
+  or re-run the real check on the current quiz (live).
 - **Routing inspector** — every AI call logged with the SDK-reported
   `inferenceSource`, model, latency, offline status and notes (including
   cross-tier verification results). The log persists across refreshes.
@@ -136,6 +164,12 @@ A 30-student class, 5 quizzes a week, ~25 AI calls per quiz-and-grade cycle:
 ![Live session](docs/screenshots/grounded_screenshot_live.png)
 
 *Live session: join code, auto-checked MCQs, AI grading, CSV export.*
+![Paper mode](docs/screenshots/grounded_screenshot_paper.png)
+
+*Paper mode: no student devices — type the class's paper answers once, AI grades the stack.*
+![Insights](docs/screenshots/grounded_screenshot_insights.png)
+
+*Insights: class analytics, weakest questions, the hybrid-value meter and the Verification Lab.*
 
 ## Quickstart
 
@@ -143,7 +177,8 @@ A 30-student class, 5 quizzes a week, ~25 AI calls per quiz-and-grade cycle:
 npm install
 cp .env.example .env.local   # optional — leave empty for DEMO mode
 npm run dev                  # http://localhost:3000
-npm test                     # vitest suite (demo engine, repair layer, CSV)
+npm test                     # vitest suite (demo engine, repair layer, CSV,
+                             #   insights math, SM-2 scheduler)
 ```
 
 For **LIVE mode** (real Firebase AI Logic + hosting), follow
@@ -197,6 +232,7 @@ For **LIVE mode** (real Firebase AI Logic + hosting), follow
 | Lesson plan generation | `aiEngine.ts` → `generateLessonPlan()` |
 | Flashcard generation | `aiEngine.ts` → `generateFlashcards()` |
 | Short-answer grading (device-biased for privacy) | `aiEngine.ts` → `gradeAnswer()` |
+| Concept re-explanation at a reading level (device-preferred) | `aiEngine.ts` → `explainConcept()` |
 | **Cross-tier answer-key verification** | `aiEngine.ts` → `verifyAnswerKeys()` |
 | On-device model download (user-gesture initiated) | `aiEngine.ts` → `prepareDeviceModel()` |
 | Routing truth: `response.inferenceSource` | `aiEngine.ts` → read in every call path |
@@ -219,7 +255,8 @@ For **LIVE mode** (real Firebase AI Logic + hosting), follow
 src/
   app/                      Landing (server) + the app at /studio (client-side,
                             offline-capable experience)
-  components/grounded/      AppShell, Studio (Quiz/Teach/Study), Live, Student,
+  components/grounded/      AppShell, Studio (Quiz/Teach/Study), Live (+ Paper
+                            mode), Student, Insights, ExplainDialog,
                             RoutingBadge, ErrorBoundary
   lib/grounded/
     aiEngine.ts             Firebase AI Logic hybrid engine (LIVE)
@@ -228,9 +265,15 @@ src/
     schemas.ts              Structured-output schemas (both tiers)
     prompts.ts              Prompt templates (Remote Config overridable)
     sessions.ts             Transport: Firestore | BroadcastChannel; CSV; share files
+    insights.ts             Insights math: hybrid-value meter, class stats, weak spots
+    srs.ts                  SM-2 spaced-repetition scheduler (pure + persisted)
+    pdf.ts / pdfTypes.ts    In-browser PDF text extraction (pdf.js, local worker)
+    speech.ts               Read-aloud via on-device speech synthesis
     store.ts                Zustand state (routing log + history persist)
-tests/                      vitest: demo engine, repair layer, session utils
+tests/                      vitest: demo engine, repair layer, session utils,
+                            insights math, SM-2 scheduler
 firestore.rules             Security rules (auth-gated submissions, immutable)
+public/pdf.worker.min.mjs   pdf.js worker, bundled locally (no CDN — offline)
 public/manifest.webmanifest PWA manifest + icons (installable)
 .github/workflows/ci.yml    Lint + test + static build on every push
 ```
@@ -261,13 +304,15 @@ public/manifest.webmanifest PWA manifest + icons (installable)
 ## How GroundEd differs from what you're comparing it to
 
 - **Kahoot/Quizizz** — great live quizzes, but cloud-only, no material
-  import, no lesson planning, no offline mode, and per-answer pricing models
-  aimed at districts, not classrooms.
+  import, no lesson planning, no offline mode, no paper workflow, and
+  per-answer pricing models aimed at districts, not classrooms.
 - **ChatGPT for teachers** — a chat box can draft questions, but it needs
   connectivity, sends student work to the cloud, has no classroom workflow
-  (join codes, offline queueing, print, export), and never shows where
-  inference ran.
-- **GroundEd** — a teacher's whole prep-to-class loop, offline-first, with
+  (join codes, paper stacks, offline queueing, print, export, analytics),
+  and never shows where inference ran.
+- **GroundEd** — a teacher's whole prep-to-class-to-review loop — quiz,
+  lesson plan, differentiated versions, flashcards with spaced repetition,
+  live sessions, paper stacks, class insights — offline-first, with
   privacy-biased grading and cross-tier verification, built on one hybrid
   engine whose routing decisions are visible in the product UI.
 
@@ -283,10 +328,11 @@ an edge case but the norm this product is designed around.
   flag; other browsers fall back to the cloud tier automatically (and the
   badge explains it).
 - The on-device tier enforces a ~9K token context — photo imports are
-  downscaled client-side to stay within it; PDFs are not accepted on-device
-  (text-layer extraction is on the roadmap).
-- Non-English output (Hindi) leans on the cloud tier; the on-device model is
-  English-biased and falls back honestly.
+  downscaled client-side to stay within it; PDFs are handled by extracting
+  the text layer in the browser (scanned/image-only PDFs are redirected to
+  the Photo tab honestly).
+- Non-English output (Hindi, Tamil, Telugu, Bengali, Marathi) leans on the
+  cloud tier; the on-device model is English-biased and falls back honestly.
 - Live sessions assume a teacher device + student devices that eventually
   reconnect; true multi-classroom scale would need sharded sessions (the
   code space is 16,200 codes by design — classroom-scale, enumeration
@@ -298,14 +344,13 @@ an edge case but the norm this product is designed around.
 
 ## Roadmap (in priority order)
 
-1. **Paper mode** — print → students answer on paper → teacher enters short
-   answers in bulk → on-device grading of the stack. (The audience's most
-   common medium; the grading engine is already built.)
-2. **PDF import** — client-side text-layer extraction so PDFs work on-device
-   too, not just in the cloud.
-3. **Cross-device library & rosters** on Firestore (rules already reserved in
-   `firestore.rules`).
-4. **Android companion** (same Firebase project, Gemini Nano via AI Logic) —
+1. **Cross-device library & rosters** on Firestore (rules already reserved in
+   `firestore.rules`) — today the quiz library, session history and flashcard
+   scheduling are per-device by design (offline-first, private), which the
+   Insights tab states honestly.
+2. **Topic mastery model** — fuse quiz results and flashcard reviews into one
+   per-student mastery graph (the data is already collected on-device).
+3. **Android companion** (same Firebase project, Gemini Nano via AI Logic) —
    the architecture is platform-portable by design.
 
 ## License
