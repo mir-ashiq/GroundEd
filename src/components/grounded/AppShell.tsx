@@ -36,10 +36,11 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { ModeChip, RoutingBadge } from "./RoutingBadge";
 import { useGrounded } from "@/lib/grounded/store";
-import { firebaseEnabled, activateRemoteConfig, getAppCheck } from "@/lib/grounded/firebase";
+import { firebaseEnabled, activateRemoteConfig, getAppCheck, getDb, getAuthInstance } from "@/lib/grounded/firebase";
 import { checkDeviceAvailability, prepareDeviceModel } from "@/lib/grounded/aiEngine";
 import type { ModelPhase, ViewId } from "@/lib/grounded/types";
 import { resetDemoSession } from "@/lib/grounded/sessions";
+import { doc, onSnapshot } from "firebase/firestore";
 
 const NAV: { id: ViewId; label: string; icon: React.ElementType }[] = [
   { id: "studio", label: "Studio", icon: BookOpen },
@@ -73,6 +74,29 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       checkDeviceAvailability().then(({ phase }) =>
         setModelStatus({ phase, lastChecked: Date.now() }),
       );
+      // WARM-UP (v3.1): Firestore's first listener after a cold load can take
+      // several seconds (IndexedDB cache + App Check + connection) — exactly
+      // the latency a student hits when tapping “Join”. Pay it at boot instead
+      // with a throwaway listener on a doc that will never exist.
+      try {
+        const stop = onSnapshot(
+          doc(getDb(), "sessions", "WARMUP-000"),
+          () => stop(),
+          () => stop(),
+        );
+      } catch {
+        /* warm-up is best-effort */
+      }
+      getAuthInstance(); // start session restore early too
+    }
+    // Deep link: /studio/#join=CODE jumps STRAIGHT to the student join flow
+    // (a student opening a shared link should never land in the teacher Studio).
+    if (typeof window !== "undefined") {
+      const m = window.location.hash.match(/join=([A-Za-z]+-\d{3,4})/);
+      if (m) {
+        useGrounded.getState().setJoinCodePrefill(m[1].toUpperCase());
+        useGrounded.getState().setView("student");
+      }
     }
     // Register the offline app-shell service worker (production builds only).
     if (
@@ -235,8 +259,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
-        {/* Nav tabs */}
-        <nav className="mx-auto flex max-w-7xl gap-1 px-4 sm:px-6" aria-label="Main">
+        {/* Nav tabs — labels collapse to icons under sm so the bar never
+            overflows a 320–390px phone (the #1 mobile complaint). */}
+        <nav
+          className="mx-auto flex w-full max-w-7xl items-center gap-1 overflow-x-clip px-2 sm:px-6"
+          aria-label="Main"
+        >
           {NAV.map((n) => {
             const Icon = n.icon;
             const active = view === n.id;
@@ -244,14 +272,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <button
                 key={n.id}
                 onClick={() => setView(n.id)}
+                aria-label={n.label}
+                title={n.label}
                 className={cn(
-                  "relative flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium transition-colors",
+                  "relative flex min-h-11 flex-1 items-center justify-center gap-1.5 px-2 py-2.5 text-sm font-medium transition-colors sm:flex-none sm:px-3",
                   active ? "text-primary" : "text-muted-foreground hover:text-foreground",
                 )}
                 aria-current={active ? "page" : undefined}
               >
-                <Icon className="h-4 w-4" />
-                {n.label}
+                <Icon className="h-4 w-4 shrink-0" />
+                <span className="hidden sm:inline">{n.label}</span>
                 {active && (
                   <motion.span
                     layoutId="nav-underline"
@@ -261,7 +291,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </button>
             );
           })}
-          <div className="ml-auto hidden items-center gap-1.5 py-2 text-xs text-muted-foreground sm:flex">
+          <div className="ml-auto hidden items-center gap-1.5 py-2 text-xs text-muted-foreground lg:flex">
             {online ? (
               <Wifi className="h-3.5 w-3.5 text-[var(--device)]" />
             ) : (

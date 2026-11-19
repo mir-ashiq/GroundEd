@@ -2,6 +2,76 @@
 
 All notable changes to GroundEd are documented here.
 
+## 3.1.0 — hostile-test hardening (Nov 19, 2026)
+
+Five zero-context, maximally-critical tester agents (hackathon judge, first-time
+teacher, mobile specialist, design critic, QA/accessibility auditor) tore the
+live app apart. Everything below came out of that round — verified against
+production where the sandbox allowed, and against Firestore via a REST rules
+E2E where it didn't.
+
+### Fixed — the big ones
+
+- **Teacher sign-in now shows the truth.** The old card kept a static
+  "Sign in with Google" button forever — even after a successful login. The
+  card is now reactive (`onAuthStateChanged`): signed-in teachers see their
+  account + Sign out, everyone else sees "no account is needed" with Google as
+  an explicitly optional extra. Every failure mode explains itself (popup
+  blocked / provider disabled / offline) instead of one misleading blanket
+  error.
+- **Mobile nav overflow.** The main nav was 411px wide — every app screen
+  scrolled sideways on a 390px iPhone. Labels now collapse to icons under
+  `sm`; 44px touch targets; verified 390 = 390 at every screen.
+- **The live dashboard is no longer blind.** A new presence layer
+  (`sessions/{code}/students`) puts every student on the teacher's roster the
+  moment they join — with live "3/6 answered" progress — instead of the first
+  submission being the first sign of life. Rows are bound to the writer's
+  anonymous auth uid (ownerUid) so only the original device can update them
+  (verified: foreign updates 403).
+- **Lobby gating.** "Activate quiz" did nothing — students could start while
+  the teacher was still in the lobby. Students now wait on a "Waiting for your
+  teacher" screen that unlocks the moment the teacher presses
+  **Start for everyone**.
+- **og:image pointed at localhost** in production metadata (static-export
+  `metadataBase` fallback) — every social share rendered a dead preview. Now
+  absolute to the live domain.
+- **Silent student failures.** Joining with a valid-format-but-wrong code, or
+  on a slow cold start, could fail with nothing on screen. There is now a
+  persistent inline error (aria-live) plus a longer-lived toast, and the
+  Firestore warm-up moved to app boot so the join is never the first listener.
+- **Generation "hang".** 30–90s of a bare "Asking the model…" read as frozen.
+  Now: skeleton + elapsed-seconds counter + phase copy + an honest
+  "can take 30–60s" note. The Generate button also explains WHY it's disabled
+  (needs ~80+ chars / offline without device model) instead of just going grey.
+
+### Added
+
+- **Students can join from the landing page** — a code box right in the hero
+  (a kid with a link should never have to escape a marketing page). The join
+  deep link (`/studio/#join=CODE`) now opens the student view directly.
+- **Session QR code** — rendered locally (qrcode lib, works offline) next to
+  the join code and the now-visible join URL; a classroom scans once instead
+  of typing.
+- **Per-question review for students** after submitting — MCQs show the
+  student's answer vs the correct one; written answers are marked private.
+- **Cross-tier verification is now visible** — a "Keys cross-verified on the
+  other tier" chip (or "fixed N keys") on the quiz header, powered by the
+  existing async verification pass.
+- **A real 404 page** with Join + Home doors instead of a dead end.
+- **Watch the demo** opens an in-page modal video instead of ejecting the
+  visitor to a raw .mp4.
+
+### Changed
+
+- App Check debug token no longer printed to the production console.
+- Accessibility: labels programmatically associated (Subject/Grade/Questions/
+  language), switches and selects named, heading hierarchy fixed on the
+  landing, a11y-tree-safe text spacing in the hero/footer.
+- Copy: "Export CSV" → "Export for Excel (CSV)", lobby status lines reflect
+  who's in the room, jargon trimmed where it blocked first-time teachers.
+- Differentiated-version chips restyled (single-line pills, active hint line)
+  so controls stop out-shouting content.
+
 ## 3.0.1 — production deploy + hydration fix (Nov 19, 2026)
 
 - **Live on production**: v3 "Classroom OS" deployed to

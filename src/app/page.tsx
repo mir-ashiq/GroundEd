@@ -6,7 +6,6 @@
 import {
   Sprout,
   ArrowRight,
-  PlayCircle,
   Cpu,
   Cloud,
   ShieldCheck,
@@ -28,9 +27,9 @@ import {
   BarChart3,
   Volume2,
 } from "lucide-react";
+import { JoinStrip, DemoVideo } from "@/components/grounded/LandingClient";
 
 const STUDIO_URL = "/studio/";
-const VIDEO_URL = "/demo/GroundEd_demo_video.mp4";
 const REPO_URL = "https://github.com/mir-ashiq/GroundEd";
 
 function BadgeChip({
@@ -175,8 +174,10 @@ export default function Landing() {
             Built for #BuildHybridAI 2026 · Firebase AI Logic hybrid inference
           </BadgeChip>
           <h1 className="font-display mx-auto mt-6 max-w-3xl text-4xl font-semibold leading-[1.08] tracking-tight sm:text-6xl">
-            The classroom AI that works when the{" "}
-            <span className="text-[var(--device)]">internet doesn&apos;t.</span>
+            {/* NOTE: the space before the span lives INSIDE this text node —
+                a whitespace-only `{" "}` node gets dropped by naive a11y-tree
+                text joiners (screen-reader snapshots read “whentheinternet”). */}
+            The classroom AI that works when the <span className="text-[var(--device)]">internet doesn&apos;t.</span>
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg">
             GroundEd is an offline-first <strong className="text-foreground">teaching kit</strong> for
@@ -195,15 +196,11 @@ export default function Landing() {
             >
               Open the Studio <ArrowRight className="h-5 w-5" />
             </a>
-            <a
-              href={VIDEO_URL}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-2 rounded-full border bg-card px-6 py-3 text-base font-medium shadow-sm transition-colors hover:bg-muted"
-            >
-              <PlayCircle className="h-5 w-5 text-primary" /> Watch the demo
-            </a>
+            <DemoVideo />
           </div>
+          {/* Students open the root link too — give them their door, not a
+              developer marketing page they have to escape from. */}
+          <JoinStrip />
           <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
             <BadgeChip tone="device">
               <Cpu className="h-3.5 w-3.5" /> ON DEVICE · private · free · airplane mode
@@ -219,6 +216,9 @@ export default function Landing() {
 
         {/* ── Routing honesty ───────────────────────────────────────────── */}
         <section className="border-y bg-card/60">
+          {/* Screen-reader heading keeps the document outline sane (h1 → h2 →
+              h3); sighted users already get the visual hierarchy. */}
+          <h2 className="sr-only">Two tiers, one honest badge</h2>
           <div className="mx-auto grid max-w-6xl gap-6 px-4 py-14 sm:px-6 md:grid-cols-2">
             <div className="rounded-2xl border border-[color-mix(in_oklab,var(--device)_30%,white)] bg-[color-mix(in_oklab,var(--device)_6%,white)] p-6">
               <div className="flex items-center gap-2">
@@ -375,7 +375,7 @@ export default function Landing() {
         <section className="border-y bg-card/60">
           <div className="mx-auto max-w-6xl px-4 py-14 sm:px-6">
             <h2 className="font-display text-center text-2xl font-semibold sm:text-3xl">
-              The Firebase stack underneath
+              Under the hood — the Firebase stack
             </h2>
             <div className="mt-8 flex flex-wrap justify-center gap-2">
               {STACK.map((s) => (
@@ -413,9 +413,8 @@ export default function Landing() {
       <footer className="border-t bg-card/60">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-4 py-6 text-xs text-muted-foreground sm:flex-row sm:px-6">
           <p>
-            Built for{" "}
-            <span className="font-medium text-foreground">#BuildHybridAI 2026</span>{" "}
-            · Firebase AI Logic hybrid inference · Gemini Nano on-device
+            Built for <span className="font-medium text-foreground">#BuildHybridAI 2026</span> · Firebase
+            AI Logic hybrid inference · Gemini Nano on-device
           </p>
           <p className="flex items-center gap-3">
             <a

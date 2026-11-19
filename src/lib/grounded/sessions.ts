@@ -19,7 +19,7 @@ import {
 } from "firebase/firestore";
 import { getDb, firebaseEnabled } from "./firebase";
 import { questionStatsForSession } from "./insights";
-import type { LiveSession, Quiz, StudentSubmission } from "./types";
+import type { LiveSession, Quiz, SessionStudent, StudentSubmission } from "./types";
 
 const NATURE_WORDS = [
   "OAK", "MAPLE", "FERN", "PINE", "IVY", "ELM", "ASH", "BIRCH", "CEDAR", "ROWAN",
@@ -43,6 +43,8 @@ export function randomId(prefix: string): string {
 export interface SessionSnapshot {
   session: LiveSession | null;
   submissions: StudentSubmission[];
+  /** Live roster: students who joined (present before their first submission). */
+  students: SessionStudent[];
 }
 
 export interface SessionTransport {
@@ -53,6 +55,14 @@ export interface SessionTransport {
   ): () => void;
   setStatus(code: string, status: LiveSession["status"]): Promise<void>;
   submit(code: string, submission: StudentSubmission): Promise<void>;
+  /** Presence: a student enters the room (before any answers exist). */
+  join(code: string, student: SessionStudent): Promise<void>;
+  /** Presence update: progress / finished, written by the owning student. */
+  updatePresence(
+    code: string,
+    studentId: string,
+    patch: Partial<Pick<SessionStudent, "progress" | "finished" | "updatedOffline">>,
+  ): Promise<void>;
 }
 
 // ── LIVE transport (Firestore) ───────────────────────────────────────────────
@@ -94,8 +104,9 @@ const firestoreTransport: SessionTransport = {
   subscribe(code, cb) {
     let latest: LiveSession | null = null;
     let subs: StudentSubmission[] = [];
+    let students: SessionStudent[] = [];
 
-    const emit = () => cb({ session: latest, submissions: subs });
+    const emit = () => cb({ session: latest, submissions: subs, students });
 
     const unsubSession = onSnapshot(
       doc(getDb(), "sessions", code),
@@ -115,9 +126,20 @@ const firestoreTransport: SessionTransport = {
       () => emit(),
     );
 
+    // Live roster — the teacher sees who is IN THE ROOM before submissions.
+    const unsubStudents = onSnapshot(
+      collection(getDb(), "sessions", code, "students"),
+      (snap) => {
+        students = snap.docs.map((d) => d.data() as SessionStudent);
+        emit();
+      },
+      () => emit(),
+    );
+
     return () => {
       unsubSession();
       unsubSubs();
+      unsubStudents();
     };
   },
 
@@ -161,6 +183,23 @@ const firestoreTransport: SessionTransport = {
       }),
     ]);
   },
+
+  async join(code, student) {
+    // Presence: create-only (a re-join overwrites own doc via setDoc — the
+    // rules allow writing your own row). Queues offline like submissions.
+    await setDoc(
+      doc(getDb(), "sessions", code, "students", student.studentId),
+      stripUndefined(student),
+    );
+  },
+
+  async updatePresence(code, studentId, patch) {
+    await setDoc(
+      doc(getDb(), "sessions", code, "students", studentId),
+      stripUndefined(patch),
+      { merge: true },
+    );
+  },
 };
 
 // ── DEMO transport (BroadcastChannel + localStorage) ─────────────────────────
@@ -171,15 +210,21 @@ const CHANNEL = "grounded-demo-session";
 interface DemoStore {
   session: LiveSession | null;
   submissions: StudentSubmission[];
+  students: SessionStudent[];
 }
 
 function readDemoStore(): DemoStore {
   try {
     const raw = localStorage.getItem(DEMO_KEY);
-    if (!raw) return { session: null, submissions: [] };
-    return JSON.parse(raw) as DemoStore;
+    if (!raw) return { session: null, submissions: [], students: [] };
+    const parsed = JSON.parse(raw) as Partial<DemoStore>;
+    return {
+      session: parsed.session ?? null,
+      submissions: parsed.submissions ?? [],
+      students: parsed.students ?? [],
+    };
   } catch {
-    return { session: null, submissions: [] };
+    return { session: null, submissions: [], students: [] };
   }
 }
 
@@ -200,7 +245,7 @@ const demoTransport: SessionTransport = {
       status: "lobby",
       createdAt: Date.now(),
     };
-    writeDemoStore({ session, submissions: [] });
+    writeDemoStore({ session, submissions: [], students: [] });
     try {
       new BroadcastChannel(CHANNEL).postMessage({ type: "reset" });
     } catch {
@@ -220,9 +265,13 @@ const demoTransport: SessionTransport = {
     const emit = () => {
       const store = readDemoStore();
       if (store.session?.code === code) {
-        cb({ session: store.session, submissions: store.submissions });
+        cb({
+          session: store.session,
+          submissions: store.submissions,
+          students: store.students,
+        });
       } else if (store.session === null) {
-        cb({ session: null, submissions: [] });
+        cb({ session: null, submissions: [], students: [] });
       }
     };
 
@@ -263,6 +312,39 @@ const demoTransport: SessionTransport = {
     );
     if (idx >= 0) store.submissions[idx] = submission;
     else store.submissions.push(submission);
+    // Mark the matching presence row as finished (same device → same id).
+    const sIdx = store.students.findIndex(
+      (s) => s.studentId === submission.studentId,
+    );
+    if (sIdx >= 0) store.students[sIdx] = { ...store.students[sIdx], finished: true, progress: submission.answers.length };
+    writeDemoStore(store);
+    try {
+      new BroadcastChannel(CHANNEL).postMessage({ type: "update" });
+    } catch {
+      /* ignore */
+    }
+  },
+
+  async join(code, student) {
+    const store = readDemoStore();
+    if (store.session?.code !== code) return;
+    const idx = store.students.findIndex((s) => s.studentId === student.studentId);
+    if (idx >= 0) store.students[idx] = { ...store.students[idx], ...student };
+    else store.students.push(student);
+    writeDemoStore(store);
+    try {
+      new BroadcastChannel(CHANNEL).postMessage({ type: "update" });
+    } catch {
+      /* ignore */
+    }
+  },
+
+  async updatePresence(code, studentId, patch) {
+    const store = readDemoStore();
+    if (store.session?.code !== code) return;
+    const idx = store.students.findIndex((s) => s.studentId === studentId);
+    if (idx < 0) return;
+    store.students[idx] = { ...store.students[idx], ...patch };
     writeDemoStore(store);
     try {
       new BroadcastChannel(CHANNEL).postMessage({ type: "update" });

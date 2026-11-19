@@ -3,6 +3,9 @@ import "./globals.css";
 import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 
 export const metadata: Metadata = {
+  // Without metadataBase, static exports resolve relative OG images against
+  // http://localhost:3000 — every social share then shows a dead preview.
+  metadataBase: new URL("https://grounded-hybrid.web.app"),
   title: "GroundEd — the classroom AI that works when the internet doesn't",
   description:
     "GroundEd is an offline-first teaching kit for low-connectivity classrooms: quizzes, lesson plans and flashcards from any material, private on-device grading, and live sessions that survive airplane mode. On-device Gemini Nano via Firebase AI Logic hybrid inference.",

@@ -11,6 +11,7 @@ import type {
   GenerationConfig,
   GradedAnswer,
   ImportPayload,
+  KeyVerification,
   LessonPlan,
   LiveSession,
   ModelStatus,
@@ -19,6 +20,7 @@ import type {
   RoutingEvent,
   RoutingPolicy,
   SessionHistoryEntry,
+  SessionStudent,
   StudentSubmission,
   ViewId,
 } from "./types";
@@ -61,6 +63,9 @@ interface GroundedState {
   generating: boolean;
   setGenerating: (v: boolean) => void;
   lastRoute: RoutingEvent | null;
+  /** Cross-tier verification state of the current quiz (chip in Studio). */
+  keyVerification: KeyVerification | null;
+  setKeyVerification: (v: KeyVerification | null) => void;
 
   // v2 — lesson plan / flashcards / differentiated variants
   lessonPlan: LessonPlan | null;
@@ -97,6 +102,9 @@ interface GroundedState {
   setSession: (s: LiveSession | null) => void;
   submissions: StudentSubmission[];
   setSubmissions: (subs: StudentSubmission[]) => void;
+  /** Students present in the active session (roster, before submissions). */
+  roster: SessionStudent[];
+  setRoster: (students: SessionStudent[]) => void;
   graded: Record<string, GradedAnswer>;
   setGraded: (g: GradedAnswer) => void;
   sessionHistory: SessionHistoryEntry[];
@@ -136,6 +144,8 @@ export const useGrounded = create<GroundedState>((set) => ({
   generating: false,
   setGenerating: (v) => set({ generating: v }),
   lastRoute: null,
+  keyVerification: null,
+  setKeyVerification: (v) => set({ keyVerification: v }),
 
   lessonPlan: null,
   setLessonPlan: (p) => set({ lessonPlan: p }),
@@ -170,6 +180,8 @@ export const useGrounded = create<GroundedState>((set) => ({
   setSession: (s) => set({ session: s }),
   submissions: [],
   setSubmissions: (subs) => set({ submissions: subs }),
+  roster: [],
+  setRoster: (students) => set({ roster: students }),
   graded: {},
   setGraded: (g) =>
     set((s) => ({ graded: { ...s.graded, [`${g.studentId}:${g.questionId}`]: g } })),

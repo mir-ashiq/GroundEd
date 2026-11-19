@@ -29,6 +29,7 @@ import {
   Wand2,
   Check,
   X,
+  ShieldCheck,
   GraduationCap,
   Layers,
   FileDown,
@@ -160,6 +161,8 @@ export function StudioView() {
   const routingPolicy = useGrounded((s) => s.routingPolicy);
   const variants = useGrounded((s) => s.variants);
   const variantsBusy = useGrounded((s) => s.variantsBusy);
+  const modelStatus = useGrounded((s) => s.modelStatus);
+  const setKeyVerification = useGrounded((s) => s.setKeyVerification);
 
   // v2 workspaces
   const [workspace, setWorkspace] = useState<Workspace>("quiz");
@@ -323,6 +326,7 @@ export function StudioView() {
         note: result.note,
       });
       const fresh = rawToQuiz(result.data, config, importPayload.kind);
+      setKeyVerification(null);
       if (replaceIndex !== undefined && quiz) {
         const questions = [...quiz.questions];
         if (fresh.questions[replaceIndex]) {
@@ -346,14 +350,33 @@ export function StudioView() {
         );
         // Async CROSS-TIER answer-key verification — a second hybrid pass on
         // the OTHER tier re-derives every MCQ key and updates the quiz in
-        // place. It never blocks the teacher; the routing inspector logs it.
+        // place. It never blocks the teacher; the routing inspector logs it
+        // and the quiz header carries the verification chip (v3.1).
         if (!result.simulated) {
+          setKeyVerification({
+            quizId: fresh.id,
+            status: "pending",
+            corrected: 0,
+            source: null,
+          });
           void verifyAnswerKeys(fresh, result.route).then((verified) => {
-            if (!verified) return;
+            if (!verified) {
+              setKeyVerification(null);
+              return;
+            }
             // Only apply if the teacher hasn't replaced the quiz meanwhile.
             const current = useGrounded.getState().quiz;
-            if (!current || current.id !== fresh.id) return;
+            if (!current || current.id !== fresh.id) {
+              setKeyVerification(null);
+              return;
+            }
             setQuiz(verified.quiz);
+            setKeyVerification({
+              quizId: fresh.id,
+              status: verified.corrected > 0 ? "fixed" : "verified",
+              corrected: verified.corrected,
+              source: verified.source,
+            });
             const v = useGrounded.getState().variants;
             if (v?.onLevel?.id === fresh.id) {
               useGrounded.getState().setVariants({
@@ -645,8 +668,9 @@ export function StudioView() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="text-xs">Subject</Label>
+                <Label htmlFor="cfg-subject" className="text-xs">Subject</Label>
                 <Input
+                  id="cfg-subject"
                   value={config.subject}
                   onChange={(e) => setConfig({ subject: e.target.value })}
                   className="mt-1"
@@ -654,12 +678,12 @@ export function StudioView() {
                 />
               </div>
               <div>
-                <Label className="text-xs">Bloom&apos;s depth</Label>
+                <Label htmlFor="cfg-blooms" className="text-xs">Bloom&apos;s depth</Label>
                 <Select
                   value={config.blooms}
                   onValueChange={(v) => setConfig({ blooms: v as BloomsLevel })}
                 >
-                  <SelectTrigger className="mt-1">
+                  <SelectTrigger id="cfg-blooms" aria-label="Bloom's depth" className="mt-1">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -679,12 +703,13 @@ export function StudioView() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <div className="flex items-center justify-between">
-                  <Label className="text-xs">Grade level</Label>
+                  <Label htmlFor="cfg-grade" className="text-xs">Grade level</Label>
                   <span className="text-sm font-semibold">
                     Grade {config.gradeLevel}
                   </span>
                 </div>
                 <Slider
+                  id="cfg-grade"
                   value={[config.gradeLevel]}
                   min={3}
                   max={12}
@@ -696,12 +721,13 @@ export function StudioView() {
               </div>
               <div>
                 <div className="flex items-center justify-between">
-                  <Label className="text-xs">Questions</Label>
+                  <Label htmlFor="cfg-count" className="text-xs">Questions</Label>
                   <span className="text-sm font-semibold">
                     {config.questionCount}
                   </span>
                 </div>
                 <Slider
+                  id="cfg-count"
                   value={[config.questionCount]}
                   min={3}
                   max={12}
@@ -723,7 +749,7 @@ export function StudioView() {
                   setConfig({ language: v as GenerationConfig["language"] })
                 }
               >
-                <SelectTrigger className="mt-1">
+                <SelectTrigger id="cfg-language" aria-label="Output language" className="mt-1">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -754,6 +780,7 @@ export function StudioView() {
               <Switch
                 checked={config.includeShortAnswers}
                 onCheckedChange={(v) => setConfig({ includeShortAnswers: v })}
+                aria-label="Include short-answer questions"
               />
             </div>
             <div className="flex items-center justify-between">
@@ -766,6 +793,7 @@ export function StudioView() {
               <Switch
                 checked={config.includeOutline}
                 onCheckedChange={(v) => setConfig({ includeOutline: v })}
+                aria-label="Include lesson outline"
               />
             </div>
           </CardContent>
@@ -794,6 +822,15 @@ export function StudioView() {
             </>
           )}
         </Button>
+        {/* WHY is the button grey? Say so — a silently disabled primary action
+            was the #1 first-run complaint from teachers. */}
+        {!generating && !hasMaterial && (
+          <p role="note" className="text-center text-xs text-muted-foreground">
+            {isOfflineNow() && modelStatus.phase !== "ready"
+              ? "You're offline and this browser has no on-device model — generation resumes when you reconnect (or use Chrome and “Prepare offline AI” in Settings)."
+              : "Paste about 80+ characters of material, import a file, photograph a page — or load a sample — to unlock Generate."}
+          </p>
+        )}
 
         <div className="flex items-center justify-between">
           <AnimatePresence mode="wait">
@@ -822,7 +859,10 @@ export function StudioView() {
       {/* ── Right: workspaces ─────────────────────────────────────────────── */}
       <div className="space-y-4">
         {generating && workspace === "quiz" ? (
-          <QuizSkeleton />
+          <div className="space-y-3">
+            <QuizSkeleton />
+            <GenerationProgress />
+          </div>
         ) : (
           <Tabs value={workspace} onValueChange={(v) => setWorkspace(v as Workspace)}>
             <TabsList className="no-print grid w-full max-w-md grid-cols-3">
@@ -964,7 +1004,13 @@ function DifferentiationBar({
 }) {
   const canSupport = gradeLevel - 2 >= 3;
   const canExtend = gradeLevel + 2 <= 12;
-  const chip = (kind: VariantKind, label: string, hint: string, enabled: boolean) => {
+  const activeHint =
+    active === "support"
+      ? "Support · simpler language, recall focus"
+      : active === "extension"
+        ? "Extension · deeper reasoning, analysis focus"
+        : "On-level · the version you configured";
+  const chip = (kind: VariantKind, label: string, enabled: boolean) => {
     const isActive = active === kind;
     const exists = kind === "onlevel" ? !!variants?.onLevel : !!variants?.[kind];
     const isBusy = busy === kind;
@@ -973,37 +1019,32 @@ function DifferentiationBar({
         key={kind}
         disabled={!enabled || isBusy}
         onClick={() => onSwitch(kind)}
+        title={label}
         className={cn(
-          "no-print flex-1 rounded-xl border px-3 py-2 text-left transition-colors",
+          "no-print inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 text-[13px] font-medium transition-colors",
           isActive
-            ? "border-primary bg-primary/10"
+            ? "border-primary bg-primary/10 font-semibold text-primary"
             : "hover:bg-muted/60 disabled:opacity-40",
         )}
       >
-        <span className="flex items-center gap-1.5 text-sm font-medium">
-          {isBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          {label}
-          {exists && !isActive && <Check className="h-3 w-3 text-[var(--device)]" />}
-        </span>
-        <span className="text-[11px] text-muted-foreground">{hint}</span>
+        {isBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+        {label}
+        {exists && !isActive && <Check className="h-3 w-3 text-[var(--device)]" />}
       </button>
     );
   };
   return (
-    <div className="no-print flex flex-wrap gap-2">
-      {chip("onlevel", `On-level · G${gradeLevel}`, "the version you configured", true)}
-      {chip(
-        "support",
-        `Support · G${Math.max(3, gradeLevel - 2)}`,
-        canSupport ? "simpler language, recall focus" : "grade is already at the floor",
-        canSupport,
-      )}
-      {chip(
-        "extension",
-        `Extension · G${Math.min(12, gradeLevel + 2)}`,
-        canExtend ? "deeper reasoning, analysis focus" : "grade is already at the ceiling",
-        canExtend,
-      )}
+    <div className="no-print space-y-1.5">
+      <div className="flex flex-wrap gap-2">
+        {chip("onlevel", `On-level · G${gradeLevel}`, true)}
+        {chip("support", `Support · G${Math.max(3, gradeLevel - 2)}`, canSupport)}
+        {chip("extension", `Extension · G${Math.min(12, gradeLevel + 2)}`, canExtend)}
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        {activeHint}
+        {!canSupport && " · Support unavailable at the grade floor"}
+        {!canExtend && " · Extension unavailable at the grade ceiling"}
+      </p>
     </div>
   );
 }
@@ -1644,6 +1685,38 @@ function QuizSkeleton() {
   );
 }
 
+/** Elapsed-time + phase feedback while generating. A bare "Asking the
+ *  model…" label for 30–90 seconds reads as a hang — testers assumed the
+ *  app froze and left. Now the app proves it's alive, every second. */
+function GenerationProgress() {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setElapsed((e) => e + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const phase =
+    elapsed < 8
+      ? "Reading your material…"
+      : elapsed < 25
+        ? "Drafting questions and answer keys…"
+        : "Still working — the model is being thorough…";
+  return (
+    <Card className="no-print border-dashed" aria-live="polite">
+      <CardContent className="flex flex-col items-center gap-1.5 py-5 text-center">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <Loader2 className="h-4 w-4 animate-spin text-primary" />
+          {phase}
+          <span className="tabular-nums text-muted-foreground">{elapsed}s</span>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          First generations can take 30–60 seconds — the routing badge under
+          Generate will show exactly where the AI ran.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── Quiz editor ──────────────────────────────────────────────────────────────
 
 function QuizEditor({
@@ -1671,6 +1744,9 @@ function QuizEditor({
     () => BLOOMS_LEVELS.find((b) => b.value === quiz.bloomsLevel)?.hint,
     [quiz.bloomsLevel],
   );
+  const keyVerification = useGrounded((s) => s.keyVerification);
+  const verification =
+    keyVerification && keyVerification.quizId === quiz.id ? keyVerification : null;
 
   function updateQuestion(idx: number, patch: Partial<Quiz["questions"][number]>) {
     const questions = quiz.questions.map((q, i) =>
@@ -1695,6 +1771,21 @@ function QuizEditor({
               <Badge variant="secondary">{quiz.subject}</Badge>
               <Badge variant="secondary">{quiz.bloomsLevel}</Badge>
               <span className="hidden sm:inline">· {bloomsHint}</span>
+              {verification?.status === "pending" && (
+                <Badge variant="outline" className="gap-1 text-[10px] text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" /> Verifying keys on the other tier…
+                </Badge>
+              )}
+              {verification?.status === "verified" && (
+                <Badge className="gap-1 border-[color-mix(in_oklab,var(--device)_40%,white)] bg-[color-mix(in_oklab,var(--device)_10%,white)] text-[var(--device)]">
+                  <ShieldCheck className="h-3 w-3" /> Keys cross-verified on the other tier
+                </Badge>
+              )}
+              {verification?.status === "fixed" && (
+                <Badge className="gap-1 border-[color-mix(in_oklab,var(--cloud)_40%,white)] bg-[color-mix(in_oklab,var(--cloud)_8%,white)] text-[var(--cloud)]">
+                  <ShieldCheck className="h-3 w-3" /> Cross-check fixed {verification.corrected} key{verification.corrected > 1 ? "s" : ""}
+                </Badge>
+              )}
             </p>
           </div>
           <div className="no-print flex flex-wrap gap-2">

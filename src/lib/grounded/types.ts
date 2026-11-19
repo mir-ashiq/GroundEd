@@ -171,6 +171,29 @@ export interface StudentSubmission {
   queuedOffline?: boolean;
 }
 
+/** Presence row: a student who joined the session (visible to the teacher
+ *  BEFORE they submit — answers otherwise leave the dashboard blind). */
+export interface SessionStudent {
+  studentId: string;
+  name: string;
+  joinedAt: number;
+  /** Writer's (anonymous) auth uid — Firestore rules bind updates to it. */
+  ownerUid?: string;
+  /** Questions answered so far (0..quiz.questions.length). */
+  progress?: number;
+  finished?: boolean;
+  updatedOffline?: boolean;
+}
+
+/** Cross-tier answer-key verification result for the CURRENT quiz — powers
+ *  the "keys verified" chip in the Studio. */
+export interface KeyVerification {
+  quizId: string;
+  status: "pending" | "verified" | "fixed";
+  corrected: number;
+  source: RouteSource | null;
+}
+
 export type GradedVerdict = "correct" | "partial" | "incorrect";
 
 export interface GradedAnswer {

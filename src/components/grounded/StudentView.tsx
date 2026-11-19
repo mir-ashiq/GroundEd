@@ -19,6 +19,8 @@ import {
   Users,
   Volume2,
   WifiOff,
+  XCircle,
+  Hourglass,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -51,6 +53,10 @@ export function StudentView() {
   const [submittedOffline, setSubmittedOffline] = useState(false);
   const [joining, setJoining] = useState(false);
   const [mcqResult, setMcqResult] = useState<{ earned: number; total: number } | null>(null);
+  // v3.1 — persistent inline join errors (a toast alone vanishes too fast for
+  // a 10-year-old with a mistyped code) + presence identity.
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [myStudentId, setMyStudentId] = useState<string>("");
 
 /** Tracks which sessions this device already submitted to, so a student who
  *  re-joins the same session can't accidentally create a duplicate row on the
@@ -67,6 +73,22 @@ function markSubmitted(code: string) {
     localStorage.setItem(`grounded:submitted:${code}`, "1");
   } catch {
     /* storage blocked — the guard is best-effort */
+  }
+}
+
+/** Stable per-device id for ONE session — presence and submission share it,
+ *  so re-joining on the same phone never duplicates a roster row. */
+function stableStudentId(code: string): string {
+  try {
+    const key = `grounded:student-id:${code}`;
+    let id = localStorage.getItem(key);
+    if (!id) {
+      id = randomId("student");
+      localStorage.setItem(key, id);
+    }
+    return id;
+  } catch {
+    return randomId("student");
   }
 }
 
@@ -98,9 +120,29 @@ function markSubmitted(code: string) {
   const questions = useMemo(() => quiz?.questions ?? [], [quiz]);
   const question = questions[qIndex];
 
+  // How many questions are answered so far (drives the live presence row).
+  const answeredCount = useMemo(
+    () =>
+      questions.filter((q) => {
+        const a = answers[q.id];
+        return a && (typeof a.choice === "number" || (a.text ?? "").trim().length > 0);
+      }).length,
+    [questions, answers],
+  );
+
+  // Publish progress to the teacher's roster (best-effort — never blocks).
+  useEffect(() => {
+    if (step !== "quiz" || !session || !myStudentId) return;
+    getSessionTransport()
+      .updatePresence(session.code, myStudentId, { progress: answeredCount })
+      .catch(() => {});
+  }, [answeredCount, step, session, myStudentId]);
+
   const join = useCallback(async () => {
     const normalized = code.trim().toUpperCase();
+    setJoinError(null);
     if (!/^[A-Z]+-\d{3,4}$/.test(normalized)) {
+      setJoinError("Enter the code your teacher shows (e.g. OAK-482).");
       toast.error("Enter the code your teacher shows (e.g. OAK-482).");
       return;
     }
@@ -129,10 +171,13 @@ function markSubmitted(code: string) {
             stop();
             reject(new Error("timeout"));
           }
-        }, 8000);
+        }, 12000);
       });
       if (!firstSnap.session || firstSnap.session.status === "closed") {
-        toast.error("No active session with that code. Check with your teacher.");
+        setJoinError("No active session with that code — check the board and try again.");
+        toast.error("No active session with that code. Check with your teacher.", {
+          duration: 6000,
+        });
         return;
       }
       setSession(firstSnap.session);
@@ -145,11 +190,42 @@ function markSubmitted(code: string) {
       setStep("name");
       toast.success("Joined! Enter your name.");
     } catch {
-      toast.error("Couldn't reach the session. Check the code and connection.");
+      setJoinError(
+        "Couldn't reach the session — check the code and your connection, then try again.",
+      );
+      toast.error("Couldn't reach the session. Check the code and connection.", {
+        duration: 6000,
+      });
     } finally {
       setJoining(false);
     }
   }, [code]);
+
+  /** Lobby gating: the teacher starts the quiz for everyone. Until then the
+   *  student waits ON this screen — “Start quiz” unlocks the moment the
+   *  session flips to active (the subscription updates `session` live). */
+  const lobbyWait = session?.status === "lobby";
+
+  async function startQuiz() {
+    if (!session) return;
+    const id = stableStudentId(session.code);
+    setMyStudentId(id);
+    setStep("quiz");
+    // Presence: the teacher sees who is in the room from this moment on.
+    // ownerUid binds the row to this device's (anonymous) auth identity —
+    // the Firestore rules only let the original writer update it.
+    try {
+      await getSessionTransport().join(session.code, {
+        studentId: id,
+        name: name.trim().slice(0, 40) || "Student",
+        joinedAt: Date.now(),
+        ownerUid: currentUid() ?? "",
+        progress: 0,
+      });
+    } catch {
+      /* presence is best-effort — the submission itself still works */
+    }
+  }
 
   async function submit() {
     if (!session) return;
@@ -177,12 +253,20 @@ function markSubmitted(code: string) {
         return entry;
       });
       await getSessionTransport().submit(session.code, {
-        studentId: randomId("student"),
+        studentId: myStudentId || stableStudentId(session.code),
         name: name.trim().slice(0, 40) || "Student", // rules cap names at 40 chars
         answers: answerRows,
         submittedAt: Date.now(),
         queuedOffline: offline,
       });
+      // Roster flips to “done” (best-effort, may still be offline).
+      getSessionTransport()
+        .updatePresence(session.code, myStudentId, {
+          finished: true,
+          progress: questions.length,
+          updatedOffline: offline,
+        })
+        .catch(() => {});
       markSubmitted(session.code);
       setSubmittedOffline(offline);
       // Instant, local MCQ feedback — deterministic key match, no AI, no
@@ -224,12 +308,24 @@ function markSubmitted(code: string) {
           </div>
           <Input
             value={code}
-            onChange={(e) => setCode(e.target.value.toUpperCase())}
+            onChange={(e) => {
+              setCode(e.target.value.toUpperCase());
+              setJoinError(null);
+            }}
             placeholder="OAK-482"
             className="h-14 text-center font-display text-2xl font-semibold tracking-widest"
             aria-label="Session code"
+            aria-invalid={!!joinError}
             onKeyDown={(e) => e.key === "Enter" && join()}
           />
+          {joinError && (
+            <p
+              role="alert"
+              className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-center text-xs font-medium text-destructive"
+            >
+              {joinError}
+            </p>
+          )}
           <Button size="lg" className="w-full" onClick={join} disabled={joining}>
             {joining ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {joining ? "Joining…" : "Join"}
@@ -256,15 +352,37 @@ function markSubmitted(code: string) {
             placeholder="e.g. Priya"
             className="h-12 text-center text-lg"
             aria-label="Your name"
-            onKeyDown={(e) => e.key === "Enter" && name.trim() && setStep("quiz")}
+            onKeyDown={(e) => e.key === "Enter" && name.trim() && !lobbyWait && startQuiz()}
           />
+          {lobbyWait ? (
+            <div
+              className="flex items-center gap-2 rounded-lg border border-dashed bg-muted/50 px-3 py-2.5 text-xs text-muted-foreground"
+              aria-live="polite"
+            >
+              <Hourglass className="h-4 w-4 shrink-0 animate-pulse text-primary" />
+              <span>
+                Waiting for your teacher to start the quiz — the button below
+                unlocks the second they do.
+              </span>
+            </div>
+          ) : (
+            <p className="text-center text-xs text-muted-foreground">
+              {questions.length} questions · works on any phone
+            </p>
+          )}
           <Button
             size="lg"
             className="w-full"
-            disabled={!name.trim()}
-            onClick={() => setStep("quiz")}
+            disabled={!name.trim() || lobbyWait}
+            onClick={startQuiz}
           >
-            Start quiz
+            {lobbyWait ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" /> Waiting for teacher…
+              </>
+            ) : (
+              "Start quiz"
+            )}
           </Button>
         </CardContent>
       </Card>
@@ -284,14 +402,64 @@ function markSubmitted(code: string) {
                 {mcqResult.earned}/{mcqResult.total}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                multiple-choice questions correct (checked on this device)
+                multiple-choice questions correct (auto-checked instantly)
               </p>
-              {session?.quiz.questions.some((q) => q.type === "short") && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Written answers will be graded privately by your teacher.
-                </p>
-              )}
             </div>
+          )}
+          {/* Per-question review — a score with no questions is a stamp, not
+              learning. MCQs show the right answer; written answers stay
+              private for the teacher to read. */}
+          {session && (
+            <div className="w-full space-y-1.5 text-left">
+              {session.quiz.questions.map((q, i) => {
+                const a = answers[q.id];
+                if (q.type === "mcq") {
+                  const correct = a?.choice === q.answerIndex;
+                  return (
+                    <div
+                      key={q.id}
+                      className="flex items-start gap-2 rounded-lg border p-2 text-xs"
+                    >
+                      {correct ? (
+                        <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--device)]" />
+                      ) : (
+                        <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--cloud)]" />
+                      )}
+                      <span className="min-w-0 flex-1">
+                        <span className="font-medium">Q{i + 1}.</span> {q.question}
+                        <span className="mt-0.5 block text-muted-foreground">
+                          Your answer: {q.options?.[a?.choice ?? -1] ?? "—"}
+                          {!correct && (
+                            <>
+                              {" "}· Correct: {q.options?.[q.answerIndex ?? 0] ?? "—"}
+                            </>
+                          )}
+                        </span>
+                      </span>
+                    </div>
+                  );
+                }
+                return (
+                  <div
+                    key={q.id}
+                    className="flex items-start gap-2 rounded-lg border p-2 text-xs"
+                  >
+                    <Send className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1">
+                      <span className="font-medium">Q{i + 1}.</span> {q.question}
+                      <span className="mt-0.5 block text-muted-foreground">
+                        Your written answer is saved — your teacher will read it soon.
+                      </span>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {session?.quiz.questions.some((q) => q.type === "short") && (
+            <p className="text-xs text-muted-foreground">
+              Written answers get graded privately by your teacher.
+            </p>
           )}
           <p className="text-sm text-muted-foreground">
             {submittedOffline ? (
@@ -312,6 +480,8 @@ function markSubmitted(code: string) {
               setQIndex(0);
               setSession(null);
               setMcqResult(null);
+              setJoinError(null);
+              setMyStudentId("");
             }}
           >
             Join another session

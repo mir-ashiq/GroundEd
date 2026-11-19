@@ -9,7 +9,7 @@
 // short answers are graded by AI with a privacy bias to the device tier.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Radio,
@@ -24,7 +24,9 @@ import {
   BookOpen,
   UserRound,
   LogIn,
+  LogOut,
   ShieldCheck,
+  CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -44,7 +46,14 @@ import {
   summarizeSession,
 } from "@/lib/grounded/sessions";
 import { gradeAnswer } from "@/lib/grounded/aiEngine";
-import { firebaseEnabled, currentUid, studentSignIn, teacherSignIn } from "@/lib/grounded/firebase";
+import {
+  firebaseEnabled,
+  studentSignIn,
+  teacherSignIn,
+  teacherSignOut,
+  watchAuth,
+  type GroundedUser,
+} from "@/lib/grounded/firebase";
 import type { GradedAnswer, Quiz, StudentSubmission } from "@/lib/grounded/types";
 import { History, FileSpreadsheet, FileStack } from "lucide-react";
 import { PaperModeView } from "./PaperModeView";
@@ -55,6 +64,8 @@ export function LiveView() {
   const setSession = useGrounded((s) => s.setSession);
   const submissions = useGrounded((s) => s.submissions);
   const setSubmissions = useGrounded((s) => s.setSubmissions);
+  const roster = useGrounded((s) => s.roster);
+  const setRoster = useGrounded((s) => s.setRoster);
   const graded = useGrounded((s) => s.graded);
   const setGraded = useGrounded((s) => s.setGraded);
   const pushRoutingEvent = useGrounded((s) => s.pushRoutingEvent);
@@ -76,26 +87,23 @@ export function LiveView() {
     return () => cancelAnimationFrame(id);
   }, []);
 
-  // Resolve a teacher identity (anonymous is fine — still Firebase Auth).
+  // Resolve a teacher identity (anonymous is fine — still Firebase Auth) and
+  // KEEP it in sync: Google sign-in/out updates the uid live, and a reload
+  // restores the session instead of showing a stale “Sign in” card.
   useEffect(() => {
-    let cancelled = false;
-    const resolve = async () => {
-      if (!firebaseEnabled) {
-        setTeacherUid("demo-teacher");
+    if (!firebaseEnabled) {
+      setTeacherUid("demo-teacher");
+      return;
+    }
+    const unsub = watchAuth((u) => {
+      if (u) {
+        setTeacherUid(u.uid);
         return;
       }
-      const existing = currentUid();
-      if (existing) {
-        setTeacherUid(existing);
-        return;
-      }
-      const uid = await studentSignIn();
-      if (!cancelled) setTeacherUid(uid ?? "anonymous");
-    };
-    void resolve();
-    return () => {
-      cancelled = true;
-    };
+      // No session yet — fall back to anonymous so sessions always work.
+      void studentSignIn().then((uid) => setTeacherUid(uid ?? "anonymous"));
+    });
+    return unsub;
   }, []);
 
   // Subscribe to the active session (deps intentionally only the code —
@@ -116,9 +124,14 @@ export function LiveView() {
       if (JSON.stringify(curSubs) !== JSON.stringify(snap.submissions)) {
         setSubmissions(snap.submissions);
       }
+      // Live roster — who is IN THE ROOM, before they submit.
+      const curRoster = useGrounded.getState().roster;
+      if (JSON.stringify(curRoster) !== JSON.stringify(snap.students)) {
+        setRoster(snap.students);
+      }
     });
     return unsub;
-  }, [sessionCode, setSession, setSubmissions]);
+  }, [sessionCode, setSession, setSubmissions, setRoster]);
 
   async function createSession() {
     if (!quiz || !teacherUid) return;
@@ -347,35 +360,7 @@ export function LiveView() {
             </div>
           )}
 
-          {firebaseEnabled && (
-            <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-              <p className="flex items-center gap-1.5 font-medium text-foreground">
-                <LogIn className="h-3.5 w-3.5" /> Teacher sign-in (optional)
-              </p>
-              <p className="mt-1">
-                You are signed in anonymously via Firebase Authentication. Use
-                Google sign-in if you want sessions tied to your account.
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-2"
-                onClick={async () => {
-                  const uid = await teacherSignIn();
-                  if (uid) {
-                    setTeacherUid(uid);
-                    toast.success("Signed in with Google");
-                  } else {
-                    toast.error(
-                      "Google sign-in is not available for this project — continuing anonymously.",
-                    );
-                  }
-                }}
-              >
-                Sign in with Google
-              </Button>
-            </div>
-          )}
+          {firebaseEnabled && <TeacherAuthCard />}
 
           <Button
             size="lg"
@@ -386,6 +371,16 @@ export function LiveView() {
             {creating ? <Loader2 className="h-5 w-5 animate-spin" /> : <Play className="h-5 w-5" />}
             Create session
           </Button>
+          {!quiz && (
+            <p className="text-center text-xs text-muted-foreground">
+              Create or pick a quiz first — then the join code appears here.
+            </p>
+          )}
+          {quiz && !teacherUid && (
+            <p className="text-center text-xs text-muted-foreground">
+              Signing you in anonymously…
+            </p>
+          )}
         </CardContent>
       </Card>
         )}
@@ -453,7 +448,7 @@ export function LiveView() {
             <div>
               <p className="flex items-center gap-1.5 text-xs uppercase tracking-widest opacity-80">
                 <Radio className="h-3.5 w-3.5" />
-                {session.status === "lobby" ? "Lobby · join now" : "Live"}
+                {session.status === "lobby" ? "Lobby · students are joining" : "Live"}
               </p>
               <p className="font-display mt-1 text-4xl font-bold tracking-wide">
                 {session.code}
@@ -486,23 +481,36 @@ export function LiveView() {
                 <ExternalLink className="h-4 w-4" /> Open student view
               </Button>
             </div>
+            {/* v3.1 — the join link is VISIBLE (not just a copy button): kids
+                scan the QR or read the URL off the projector. */}
+            <div className="flex flex-col items-center gap-2">
+              <JoinQr
+                url={`${window.location.origin}${window.location.pathname}#join=${session.code}`}
+              />
+              <code className="max-w-[220px] break-all text-center text-[10px] opacity-90">
+                {window.location.origin}{window.location.pathname}#join={session.code}
+              </code>
+            </div>
           </div>
         </div>
         <CardContent className="flex flex-wrap items-center justify-between gap-3 py-3">
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <Users className="h-4 w-4" />
-            {submissions.length} submission{submissions.length === 1 ? "" : "s"}
-            {session.status === "lobby" && " · waiting for students…"}
+            {roster.length > 0
+              ? `${roster.length} in the room · ${submissions.length} submitted`
+              : `${submissions.length} submission${submissions.length === 1 ? "" : "s"}${
+                  session.status === "lobby" ? " · waiting for students…" : ""
+                }`}
           </p>
           <div className="flex flex-wrap gap-2">
             {submissions.length > 0 && (
               <Button size="sm" variant="outline" className="gap-1.5" onClick={exportCsv}>
-                <FileSpreadsheet className="h-3.5 w-3.5" /> Export CSV
+                <FileSpreadsheet className="h-3.5 w-3.5" /> Export for Excel (CSV)
               </Button>
             )}
             {session.status === "lobby" ? (
               <Button size="sm" className="gap-1.5" onClick={() => setStatus("active")}>
-                <Play className="h-3.5 w-3.5" /> Activate quiz
+                <Play className="h-3.5 w-3.5" /> Start for everyone
               </Button>
             ) : (
               <Button
@@ -527,7 +535,7 @@ export function LiveView() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {submissions.length === 0 ? (
+            {roster.length === 0 && submissions.length === 0 ? (
               <div className="flex flex-col items-center gap-2 py-10 text-center text-sm text-muted-foreground">
                 <UserRound className="h-8 w-8 text-muted-foreground/40" />
                 Waiting for the first student to join with code{" "}
@@ -538,6 +546,53 @@ export function LiveView() {
               </div>
             ) : (
               <ScrollArea className="max-h-96">
+                {/* Live roster — who is in the room RIGHT NOW, with progress,
+                    visible from the moment a student joins (not just when they
+                    submit). */}
+                {roster.length > 0 && (
+                  <div className="mb-3 space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      In the room · {roster.length}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {roster
+                        .slice()
+                        .sort((a, b) => a.name.localeCompare(b.name))
+                        .map((s) => {
+                          const done = s.finished;
+                          return (
+                            <span
+                              key={s.studentId}
+                              className={cn(
+                                "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs",
+                                done
+                                  ? "border-[color-mix(in_oklab,var(--device)_40%,white)] bg-[color-mix(in_oklab,var(--device)_8%,white)] text-[var(--device)]"
+                                  : "bg-muted/50 text-foreground",
+                              )}
+                            >
+                              {done ? (
+                                <CheckCircle2 className="h-3 w-3" />
+                              ) : (
+                                <Loader2 className="h-3 w-3 animate-spin text-primary" />
+                              )}
+                              {s.name}
+                              {!done && s.progress != null && (
+                                <span className="text-muted-foreground">
+                                  · {s.progress}/{session.quiz.questions.length}
+                                </span>
+                              )}
+                            </span>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
+                {submissions.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-muted-foreground">
+                    Students are in — their results land here the moment they
+                    submit.
+                  </p>
+                ) : (
                 <ul className="space-y-2">
                   <AnimatePresence>
                     {submissions.map((sub) => {
@@ -626,6 +681,7 @@ export function LiveView() {
                     })}
                   </AnimatePresence>
                 </ul>
+                )}
               </ScrollArea>
             )}
           </CardContent>
@@ -705,4 +761,157 @@ function mcqScoreFor(sub: StudentSubmission, quiz: Quiz) {
     if (a && a.choice === q.answerIndex) earned += 1;
   }
   return { earned, total: mcqs.length };
+}
+
+// ── Teacher auth card (v3.1) ──────────────────────────────────────────────────
+
+/**
+ * Reactive sign-in state. The old card showed a static "Sign in with Google"
+ * button forever — even AFTER a successful login — which read as broken.
+ * This one subscribes to Firebase auth and always shows the truth:
+ *   • Google account  → who you are + Sign out
+ *   • Anonymous       → "no account needed" + OPTIONAL Google sign-in
+ * Errors are explained precisely (popup blocked vs provider disabled vs
+ * offline) instead of one misleading blanket message.
+ */
+function TeacherAuthCard() {
+  const [user, setUser] = useState<GroundedUser | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => watchAuth(setUser), []);
+
+  if (!firebaseEnabled) return null;
+
+  const signedInWithGoogle = user && !user.isAnonymous;
+
+  async function signIn() {
+    setBusy(true);
+    const r = await teacherSignIn();
+    setBusy(false);
+    if (r.ok) {
+      toast.success("Signed in with Google — sessions now tie to your account.");
+      return;
+    }
+    switch (r.code) {
+      case "auth/popup-closed-by-user":
+      case "auth/cancelled-popup-request":
+        break; // the user changed their mind — silence is correct
+      case "auth/popup-blocked":
+        toast.error(
+          "Your browser blocked the sign-in popup — allow popups for this site, then try again.",
+          { duration: 7000 },
+        );
+        break;
+      case "auth/operation-not-allowed":
+        toast.error(
+          "Google sign-in isn't enabled for this Firebase project yet. Firebase Console → Authentication → Sign-in method → Google (one toggle — see FIREBASE_SETUP.md §3).",
+          { duration: 9000 },
+        );
+        break;
+      case "auth/network-request-failed":
+        toast.error(
+          "You're offline — Google sign-in needs the internet. Anonymous mode keeps working.",
+          { duration: 7000 },
+        );
+        break;
+      default:
+        toast.error(
+          "Google sign-in didn't complete — still signed in anonymously, everything keeps working.",
+          { duration: 7000 },
+        );
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+      {signedInWithGoogle ? (
+        <>
+          <p className="flex items-center gap-1.5 font-medium text-foreground">
+            <ShieldCheck className="h-3.5 w-3.5 text-[var(--device)]" />
+            Signed in as{" "}
+            {user?.displayName ?? user?.email ?? "Google account"}
+          </p>
+          <p className="mt-1">
+            Live sessions on this device are tied to your Google account.
+            No account is required to run a class — signing out switches you
+            back to anonymous.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-2 h-9 gap-1.5"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              await teacherSignOut();
+              setBusy(false);
+              toast.success("Signed out — back to anonymous mode.");
+            }}
+          >
+            {busy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <LogOut className="h-3.5 w-3.5" />
+            )}
+            Sign out
+          </Button>
+        </>
+      ) : (
+        <>
+          <p className="flex items-center gap-1.5 font-medium text-foreground">
+            <LogIn className="h-3.5 w-3.5" /> Teacher sign-in (optional)
+          </p>
+          <p className="mt-1">
+            You&apos;re signed in anonymously —{" "}
+            <strong className="text-foreground">no account is needed</strong>{" "}
+            to create a session or run a class. Optionally sign in with Google
+            to tie sessions to your account across devices.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-2 h-9 gap-1.5"
+            disabled={busy}
+            onClick={signIn}
+          >
+            {busy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <LogIn className="h-3.5 w-3.5" />
+            )}
+            {busy ? "Opening Google…" : "Sign in with Google"}
+          </Button>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Session join QR — rendered locally (qrcode, no network), scanned by a
+ *  classroom of phones in one shot. */
+function JoinQr({ url }: { url: string }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    let alive = true;
+    void import("qrcode").then((QR) => {
+      if (!alive || !canvasRef.current) return;
+      QR.toCanvas(canvasRef.current, url, {
+        width: 148,
+        margin: 1,
+        color: { dark: "#20302a", light: "#ffffff" },
+      }).catch(() => {});
+    });
+    return () => {
+      alive = false;
+    };
+  }, [url]);
+  return (
+    <div className="rounded-xl bg-white p-2 shadow-sm">
+      <canvas
+        ref={canvasRef}
+        role="img"
+        aria-label="Scan to join the class session"
+      />
+    </div>
+  );
 }

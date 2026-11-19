@@ -18,8 +18,10 @@ import { initializeAppCheck, ReCaptchaV3Provider, CustomProvider, type AppCheck 
 import {
   getAuth,
   signInAnonymously,
+  signOut,
   GoogleAuthProvider,
   signInWithPopup,
+  onAuthStateChanged,
   type Auth,
 } from "firebase/auth";
 import {
@@ -92,9 +94,11 @@ export function getAppCheck(): AppCheck {
       });
     } else {
       // Debug flow (local development without a reCAPTCHA site key).
-      if (typeof self !== "undefined") {
-        // `true` → SDK prints a fresh debug token to the console on first run;
-        // a token string → uses the already-registered token directly.
+      // NOTE: `self.FIREBASE_APPCHECK_DEBUG_TOKEN` is what makes the SDK PRINT
+      // the debug token to the console — only set it in dev. In production the
+      // CustomProvider below supplies the registered token directly, so the
+      // global (and its console leak) is never needed.
+      if (typeof self !== "undefined" && process.env.NODE_ENV !== "production") {
         (self as unknown as Record<string, unknown>).FIREBASE_APPCHECK_DEBUG_TOKEN =
           debugToken || true;
       }
@@ -174,16 +178,58 @@ export function rcString(key: string, fallback: string): string {
 
 // ── Auth helpers ─────────────────────────────────────────────────────────────
 
-/** Teachers: Google sign-in (LIVE mode). Returns null in DEMO mode. */
-export async function teacherSignIn(): Promise<string | null> {
-  if (!firebaseEnabled) return null;
+/** GroundEd's view of the current Firebase user (null when signed out). */
+export interface GroundedUser {
+  uid: string;
+  isAnonymous: boolean;
+  displayName: string | null;
+  email: string | null;
+}
+
+/** Subscribe to auth state changes. Returns an unsubscribe function. */
+export function watchAuth(cb: (u: GroundedUser | null) => void): () => void {
+  if (!firebaseEnabled || typeof window === "undefined") {
+    cb(null);
+    return () => {};
+  }
+  return onAuthStateChanged(getAuthInstance(), (u) =>
+    cb(
+      u
+        ? {
+            uid: u.uid,
+            isAnonymous: u.isAnonymous,
+            displayName: u.displayName,
+            email: u.email,
+          }
+        : null,
+    ),
+  );
+}
+
+/** Teachers: Google sign-in (LIVE mode). Never throws — typed result so the
+ *  UI can explain EXACTLY what went wrong instead of a generic failure. */
+export async function teacherSignIn(): Promise<
+  { ok: true; uid: string } | { ok: false; code: string }
+> {
+  if (!firebaseEnabled) return { ok: false, code: "auth/not-configured" };
   const a = getAuthInstance();
   const provider = new GoogleAuthProvider();
   try {
     const cred = await signInWithPopup(a, provider);
-    return cred.user.uid;
+    return { ok: true, uid: cred.user.uid };
+  } catch (err) {
+    const code = (err as { code?: string })?.code ?? "auth/unknown";
+    return { ok: false, code };
+  }
+}
+
+/** Sign out of the current session (keeps anonymous auth available). */
+export async function teacherSignOut(): Promise<void> {
+  if (!firebaseEnabled) return;
+  try {
+    await signOut(getAuthInstance());
   } catch {
-    return null;
+    /* already signed out */
   }
 }
 

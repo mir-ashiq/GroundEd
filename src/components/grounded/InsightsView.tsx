@@ -51,6 +51,7 @@ import { DEFAULT_CONFIG, type Quiz } from "@/lib/grounded/types";
 export function InsightsView() {
   const routingLog = useGrounded((s) => s.routingLog);
   const history = useGrounded((s) => s.sessionHistory);
+  const setView = useGrounded((s) => s.setView);
 
   const value = useMemo(() => hybridValueFromLog(routingLog), [routingLog]);
   const stats = useMemo(() => classStatsFromHistory(history), [history]);
@@ -78,6 +79,9 @@ export function InsightsView() {
               No sessions or AI calls recorded yet. Generate a quiz, run a live
               session or grade a paper stack — this page fills itself in.
             </p>
+            <Button className="gap-2" onClick={() => setView("studio")}>
+              <Sparkles className="h-4 w-4" /> Open the Studio to begin
+            </Button>
           </CardContent>
         </Card>
       )}
