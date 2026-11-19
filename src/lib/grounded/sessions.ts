@@ -25,9 +25,11 @@ const NATURE_WORDS = [
   "HAZEL", "WILLOW", "SPRUCE", "ALDER", "LOTUS", "TULIP", "MAGNOLIA", "JUNIPER",
 ];
 
+/** WORD-#### (18 × 9,000 = 162,000 combinations): a bored student can't guess
+ *  a live class's code, and accidental collisions stay negligible. */
 export function generateSessionCode(): string {
   const w = NATURE_WORDS[Math.floor(Math.random() * NATURE_WORDS.length)];
-  const n = Math.floor(100 + Math.random() * 900);
+  const n = Math.floor(1000 + Math.random() * 9000);
   return `${w}-${n}`;
 }
 

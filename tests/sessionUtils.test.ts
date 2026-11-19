@@ -143,7 +143,7 @@ describe("summarizeSession", () => {
 describe("generateSessionCode", () => {
   it("always produces WORD-### codes", () => {
     for (let i = 0; i < 50; i++) {
-      expect(generateSessionCode()).toMatch(/^[A-Z]+-\d{3}$/);
+      expect(generateSessionCode()).toMatch(/^[A-Z]+-\d{3,4}$/);
     }
   });
 });

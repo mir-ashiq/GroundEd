@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import { Toaster } from "@/components/ui/toaster";
 import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 
 export const metadata: Metadata = {
@@ -34,6 +33,7 @@ export const metadata: Metadata = {
       "Quizzes, lesson plans and flashcards from any material. Private on-device grading, live sessions with intermittent connectivity, and answer keys verified on the OTHER tier. Built on Firebase AI Logic hybrid inference.",
     siteName: "GroundEd",
     type: "website",
+    images: [{ url: "/og-image.png", width: 1200, height: 630, alt: "GroundEd — offline-first classroom AI" }],
   },
 };
 
@@ -73,7 +73,6 @@ export default function RootLayout({
         }
       >
         {children}
-        <Toaster />
         <SonnerToaster position="top-center" offset={72} richColors />
       </body>
     </html>

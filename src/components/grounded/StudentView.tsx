@@ -50,9 +50,27 @@ export function StudentView() {
   const [joining, setJoining] = useState(false);
   const [mcqResult, setMcqResult] = useState<{ earned: number; total: number } | null>(null);
 
+/** Tracks which sessions this device already submitted to, so a student who
+ *  re-joins the same session can't accidentally create a duplicate row on the
+ *  teacher's dashboard. */
+function submittedAlready(code: string): boolean {
+  try {
+    return localStorage.getItem(`grounded:submitted:${code}`) === "1";
+  } catch {
+    return false;
+  }
+}
+function markSubmitted(code: string) {
+  try {
+    localStorage.setItem(`grounded:submitted:${code}`, "1");
+  } catch {
+    /* storage blocked — the guard is best-effort */
+  }
+}
+
   // Prefill from #join=CODE hash (opened via teacher's "Open student view").
   useEffect(() => {
-    const m = window.location.hash.match(/join=([A-Za-z]+-\d+)/);
+    const m = window.location.hash.match(/join=([A-Za-z]+-\d{3,4})/);
     if (!m) return;
     const id = requestAnimationFrame(() => setCode(m[1].toUpperCase()));
     return () => cancelAnimationFrame(id);
@@ -80,7 +98,7 @@ export function StudentView() {
 
   const join = useCallback(async () => {
     const normalized = code.trim().toUpperCase();
-    if (!/^[A-Z]+-\d{3}$/.test(normalized)) {
+    if (!/^[A-Z]+-\d{3,4}$/.test(normalized)) {
       toast.error("Enter the code your teacher shows (e.g. OAK-482).");
       return;
     }
@@ -158,11 +176,12 @@ export function StudentView() {
       });
       await getSessionTransport().submit(session.code, {
         studentId: randomId("student"),
-        name: name.trim() || "Student",
+        name: name.trim().slice(0, 40) || "Student", // rules cap names at 40 chars
         answers: answerRows,
         submittedAt: Date.now(),
         queuedOffline: offline,
       });
+      markSubmitted(session.code);
       setSubmittedOffline(offline);
       // Instant, local MCQ feedback — deterministic key match, no AI, no
       // network. Short answers stay for the teacher's private AI grading.

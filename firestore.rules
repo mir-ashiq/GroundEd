@@ -4,18 +4,25 @@ rules_version = '2';
 // GroundEd — Firestore security rules
 //
 // Design notes (disclosed in the README as part of the submission):
-//   • Sessions are readable by anyone holding the join code — classroom quiz
-//     content is not sensitive. Submissions require (anonymous) auth and are
-//     immutable after creation — students can never edit results retroactively.
+//   • Sessions are readable BY CODE (document `get`) by anyone holding the
+//     join code — classroom quiz content is not sensitive, and the code IS
+//     the capability. Collection `list` is DENIED everywhere so no client can
+//     enumerate other classes' sessions.
+//   • Submissions (children's names + answers) require (anonymous)
+//     authentication to read — students anonymous-sign-in before joining, so
+//     the classroom flow is unchanged, while unauthenticated enumeration is
+//     impossible. Submissions are immutable after creation.
 // ─────────────────────────────────────────────────────────────────────────────
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
     match /sessions/{code} {
-      // Session docs carry the quiz content students need to join by code —
-      // classroom quiz content is not sensitive, so join-by-code stays open.
-      allow read: if true;
+      // Students join by code: a single-document `get` is allowed (the code is
+      // the capability). `list` is denied — otherwise any anonymous client
+      // could query the collection and read EVERY class's session + quiz.
+      allow get: if true;
+      allow list: if false;
       allow create: if request.auth != null
                     && request.resource.data.teacherUid == request.auth.uid
                     && code is string
@@ -24,13 +31,13 @@ service cloud.firestore {
                             && resource.data.teacherUid == request.auth.uid;
 
       match /submissions/{studentId} {
-        // v2: submissions (children's names + answers) now require
-        // authentication to read. Students anonymous-sign-in before joining
-        // anyway, so the classroom flow is unchanged — but unauthenticated
-        // enumeration of live sessions is now impossible.
-        allow read: if request.auth != null;
+        // The teacher dashboard subscribes to this subcollection for one
+        // session — scoped by the code the teacher already holds. v2: reads
+        // additionally require auth, closing unauthenticated enumeration.
+        allow get, list: if request.auth != null;
         // Students anonymous-sign-in before submitting (see StudentView), so
         // requiring auth costs nothing and blocks unauthenticated spam.
+        // Name length is clamped client-side too — the rule is the backstop.
         allow create: if request.auth != null
                       && request.resource.data.studentId == studentId
                       && request.resource.data.name is string
@@ -44,7 +51,8 @@ service cloud.firestore {
 
     // Teacher-owned saved quizzes (future library sync beyond local storage).
     match /quizzes/{quizId} {
-      allow read: if request.auth != null;
+      allow get: if request.auth != null;
+      allow list: if false; // owners access their own documents by id
       allow create: if request.auth != null
                     && request.resource.data.ownerUid == request.auth.uid;
       allow update, delete: if request.auth != null

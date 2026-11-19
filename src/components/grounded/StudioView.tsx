@@ -94,6 +94,38 @@ import {
 
 type Workspace = "quiz" | "teach" | "study";
 
+/** Human-readable failure explanations. The raw SDK message is logged to the
+ *  console for debugging; the teacher sees plain language + next steps. */
+function isOfflineNow(): boolean {
+  return typeof navigator !== "undefined" && navigator.onLine === false;
+}
+
+function humanizeError(err: unknown, offline: boolean, modelReady: boolean): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  if (offline && !modelReady) {
+    return "You're offline and this browser has no on-device model, so nothing can run right now. Reconnect to use the cloud tier — or open GroundEd in Chrome 139+ (Prompt API enabled) and tap \"Prepare offline AI\" in Settings first, so generation keeps working in airplane mode.";
+  }
+  if (/timeout/i.test(raw)) {
+    return "The model took too long to answer. Try again — if it keeps happening, switching routing to Auto in Settings usually helps.";
+  }
+  if (/failed to fetch|networkerror|fetch failed|offline/i.test(raw)) {
+    return "Couldn't reach the AI service. Check your connection and try again — the routing badge will show where the retry landed.";
+  }
+  if (/app check|attestation/i.test(raw)) {
+    return "App Check attestation was rejected. If this persists, the deployment's debug token needs re-registering in the Firebase console.";
+  }
+  if (/quota|429|resource.?exhausted/i.test(raw)) {
+    return "The cloud model is rate-limited right now. Wait a moment and retry — or use the on-device tier (Settings \u2192 Prepare offline AI).";
+  }
+  if (/permission|403|unauthenticated/i.test(raw)) {
+    return "The AI service rejected the request (permissions). A teacher account may need to re-authenticate.";
+  }
+  if (/on-?device|prompt api|nano/i.test(raw)) {
+    return "The on-device model isn't available in this browser. Switch routing to Auto (Settings) so the cloud tier can take over.";
+  }
+  return "Generation didn't complete. Try again — if it keeps failing, switching routing to Auto in Settings usually helps.";
+}
+
 export function StudioView() {
   const importPayload = useGrounded((s) => s.importPayload);
   const setImportPayload = useGrounded((s) => s.setImportPayload);
@@ -304,12 +336,9 @@ export function StudioView() {
         }
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Generation failed";
-      toast.error(
-        msg.toLowerCase().includes("device")
-          ? "The on-device model isn't available right now — switch routing to Auto in Settings."
-          : `Generation failed: ${msg}`,
-      );
+      console.error("[GroundEd] generation failed:", err);
+      const modelReady = useGrounded.getState().modelStatus.phase === "ready";
+      toast.error(humanizeError(err, isOfflineNow(), modelReady));
     } finally {
       setGenerating(false);
     }
